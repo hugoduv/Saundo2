@@ -4,3 +4,6 @@ Debug/
 
 *.mp3
 *.wav
+
+!server/audio/
+!server/audio/*.wav

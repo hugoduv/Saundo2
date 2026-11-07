@@ -1,0 +1,14 @@
+{
+  "name": "saundo2-audio-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UID NFC to audio mapping server for Saundo2",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
