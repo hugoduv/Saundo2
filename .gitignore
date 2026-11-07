@@ -1,5 +1,7 @@
 Debug/
 .vscode/
+NFC_reader/
+
 
 *.mp3
 *.wav
