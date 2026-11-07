@@ -217,8 +217,7 @@ int main(void)
   MX_DAC1_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
-  /* At boot: 440 Hz sine on DAC1_OUT1 (PA4 / ARD_D7) forever, until blue button is pressed */
-  PlaySine();
+  /* DAC output starts when the blue user button is pressed */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -231,8 +230,7 @@ int main(void)
 	  if (buttonPressed)
 	  {
 		  buttonPressed = 0;
-		  /* 1st press: switch from sine to wav. Next presses: replay wav (ignored while playing) */
-		  PlaySound();
+		  PlaySine();
 	  }
   }
   /* USER CODE END 3 */
