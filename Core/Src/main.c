@@ -6,7 +6,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 STMicroelectronics.
+  * Copyright (c) 2026 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -18,25 +18,28 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "app_x-cube-nfcx.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <string.h>
 #include "soup.h"
+#include "seep.h"
+#include "nfc_events.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef enum {
-  PLAY_MODE_SOUP = 0    /* soup.wav buffer, normal DMA, one shot per key press */
-} PlayMode_t;
 
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BUTTON_DEBOUNCE_MS   200U
-#define SOUP_WAV_HEADER_SIZE 44U
+#define WAV_HEADER_SIZE          44U
+#define AUDIO_BUFFER_SIZE        1024U
+#define SOUP_UID                 "04301DCA936680"
+#define SEEP_UID                 "04912BEAD81990"
 
 /* USER CODE END PD */
 
@@ -59,17 +62,17 @@ SPI_HandleTypeDef hspi3;
 
 TIM_HandleTypeDef htim6;
 
-UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart3;
 
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-static uint8_t soup_pcm_u8[(sizeof(soup_audio) - SOUP_WAV_HEADER_SIZE) / 2U];
-static __IO uint32_t transferCompleteDetected=1; /* Set to 1 if transfer is correctly completed */
-static __IO PlayMode_t playMode = PLAY_MODE_SOUP;
-static __IO uint32_t buttonPressed = 0;          /* set by EXTI13 (blue button) callback */
-static __IO uint32_t lastButtonTick = 0;
+extern EXTI_HandleTypeDef H_EXTI_5;
+static volatile uint32_t transferCompleteDetected = 1U;
+static uint8_t audioBuffer[AUDIO_BUFFER_SIZE];
+static const uint8_t *audioSource;
+static uint32_t audioSourceRemaining;
+static volatile uint8_t audioEndReached;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -80,100 +83,17 @@ static void MX_DFSDM1_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_QUADSPI_Init(void);
 static void MX_SPI3_Init(void);
-static void MX_USART1_UART_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_USB_OTG_FS_PCD_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
-static void DAC_StopOutput(void);
-static void DAC_SetDmaMode(uint32_t mode);
-static void PlaySound(void);
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-/* DAC DMA transfer complete (end of buffer) */
-void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
-{
-  if (playMode == PLAY_MODE_SOUP)
-  {
-    transferCompleteDetected = 1;
-    /*##- Stop TIM peripheral counter ######################################*/
-    HAL_TIM_Base_Stop(&htim6);
-  }
-}
 
-/* Blue button (PC13, EXTI falling edge) */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-  if (GPIO_Pin == BUTTON_EXTI13_Pin)
-  {
-    uint32_t now = HAL_GetTick();
-    if ((now - lastButtonTick) > BUTTON_DEBOUNCE_MS)
-    {
-      lastButtonTick = now;
-      buttonPressed = 1;
-    }
-  }
-}
-
-/* Stop timer trigger and DAC DMA stream */
-static void DAC_StopOutput(void)
-{
-  HAL_TIM_Base_Stop(&htim6);
-  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-}
-
-/* Re-init DAC DMA channel with DMA_CIRCULAR or DMA_NORMAL, other settings unchanged
-   (same as generated in HAL_DAC_MspInit: DMA1_Channel3, request 6, byte/byte, mem inc) */
-static void DAC_SetDmaMode(uint32_t mode)
-{
-  if (hdma_dac_ch1.Init.Mode == mode) return;
-  HAL_DMA_DeInit(&hdma_dac_ch1);
-  hdma_dac_ch1.Init.Mode = mode;
-  if (HAL_DMA_Init(&hdma_dac_ch1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  __HAL_LINKDMA(&hdac1, DMA_Handle1, hdma_dac_ch1);
-}
-
-/* Convert the 16-bit PCM WAV samples to unsigned 8-bit DAC samples. */
-static void PrepareSoupAudio(void)
-{
-  uint32_t sampleCount = ((uint32_t)soup_audio_size - SOUP_WAV_HEADER_SIZE) / 2U;
-
-  for (uint32_t i = 0; i < sampleCount; i++)
-  {
-    uint32_t offset = SOUP_WAV_HEADER_SIZE + (2U * i);
-    int32_t sample = (int16_t)((uint16_t)soup_audio[offset] |
-                               ((uint16_t)soup_audio[offset + 1U] << 8));
-    soup_pcm_u8[i] = (uint8_t)((sample >> 8) + 128);
-  }
-}
-
-/* Output the soup.wav buffer once at 16 kHz, non blocking */
-static void PlaySound(void)
-{
-  /* If the WAV is already playing, just exit. */
-  if ((playMode == PLAY_MODE_SOUP) && (transferCompleteDetected == 0)) return;
-  DAC_StopOutput();
-  playMode = PLAY_MODE_SOUP;
-  transferCompleteDetected = 0;
-  DAC_SetDmaMode(DMA_NORMAL);
-  PrepareSoupAudio();
-  /*##- Enable DAC selected channel and associated DMA #############################*/
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)&soup_pcm_u8[0],
-                        sizeof(soup_pcm_u8), DAC_ALIGN_8B_R) != HAL_OK)
-  {
-    /* Start DMA Error */
-    Error_Handler();
-  }
-  /*##- Enable TIM peripheral counter ######################################*/
-  HAL_TIM_Base_Start(&htim6);
-}
 /* USER CODE END 0 */
 
 /**
@@ -200,7 +120,7 @@ int main(void)
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
+  H_EXTI_5.Line = EXTI_LINE_5;
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -210,13 +130,13 @@ int main(void)
   MX_I2C2_Init();
   MX_QUADSPI_Init();
   MX_SPI3_Init();
-  MX_USART1_UART_Init();
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_DAC1_Init();
   MX_TIM6_Init();
+  MX_X_CUBE_NFC6_Init();
   /* USER CODE BEGIN 2 */
-  /* DAC output starts when the blue user button is pressed */
+  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2, GPIO_PIN_SET);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -225,12 +145,9 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
+  MX_X_CUBE_NFC6_Process();
     /* USER CODE BEGIN 3 */
-	  if (buttonPressed)
-	  {
-		  buttonPressed = 0;
-		  PlaySound();
-	  }
+  nfc_events_poll();
   }
   /* USER CODE END 3 */
 }
@@ -392,7 +309,7 @@ static void MX_I2C2_Init(void)
 
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x10D19CE4;
+  hi2c2.Init.Timing = 0x00000E14;
   hi2c2.Init.OwnAddress1 = 0;
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -515,10 +432,10 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 39;
+  htim6.Init.Prescaler = 0;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 124;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim6.Init.Period = 4999;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
     Error_Handler();
@@ -532,41 +449,6 @@ static void MX_TIM6_Init(void)
   /* USER CODE BEGIN TIM6_Init 2 */
 
   /* USER CODE END TIM6_Init 2 */
-
-}
-
-/**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART1_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART1_Init 0 */
-
-  /* USER CODE END USART1_Init 0 */
-
-  /* USER CODE BEGIN USART1_Init 1 */
-
-  /* USER CODE END USART1_Init 1 */
-  huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
-  huart1.Init.WordLength = UART_WORDLENGTH_8B;
-  huart1.Init.StopBits = UART_STOPBITS_1;
-  huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
-  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART1_Init 2 */
-
-  /* USER CODE END USART1_Init 2 */
 
 }
 
@@ -679,7 +561,11 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOE, M24SR64_Y_RF_DISABLE_Pin|M24SR64_Y_GPO_Pin|ISM43362_RST_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, ARD_D10_Pin|SPBTLE_RF_RST_Pin|ARD_D9_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3
+                          |GPIO_PIN_4|VL53L0X_XSHUT_Pin|LED3_WIFI__LED4_BLE_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(NFC_CS_GPIO_Port, NFC_CS_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, ARD_D8_Pin|ISM43362_BOOT0_Pin|ISM43362_WAKEUP_Pin|LED2_Pin
@@ -692,7 +578,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(SPBTLE_RF_SPI3_CSN_GPIO_Port, SPBTLE_RF_SPI3_CSN_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, VL53L0X_XSHUT_Pin|LED3_WIFI__LED4_BLE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, SPBTLE_RF_RST_Pin|ARD_D9_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(SPSGRF_915_SPI3_CSN_GPIO_Port, SPSGRF_915_SPI3_CSN_Pin, GPIO_PIN_SET);
@@ -707,24 +593,19 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : USB_OTG_FS_OVRCR_EXTI3_Pin SPSGRF_915_GPIO3_EXTI5_Pin SPBTLE_RF_IRQ_EXTI6_Pin ISM43362_DRDY_EXTI1_Pin */
-  GPIO_InitStruct.Pin = USB_OTG_FS_OVRCR_EXTI3_Pin|SPSGRF_915_GPIO3_EXTI5_Pin|SPBTLE_RF_IRQ_EXTI6_Pin|ISM43362_DRDY_EXTI1_Pin;
+  /*Configure GPIO pins : USB_OTG_FS_OVRCR_EXTI3_Pin SPBTLE_RF_IRQ_EXTI6_Pin ISM43362_DRDY_EXTI1_Pin */
+  GPIO_InitStruct.Pin = USB_OTG_FS_OVRCR_EXTI3_Pin|SPBTLE_RF_IRQ_EXTI6_Pin|ISM43362_DRDY_EXTI1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : BUTTON_EXTI13_Pin */
-  GPIO_InitStruct.Pin = BUTTON_EXTI13_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  /*Configure GPIO pins : PC0 PC1 PC2 PC3
+                           PC4 VL53L0X_XSHUT_Pin LED3_WIFI__LED4_BLE_Pin */
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_3
+                          |GPIO_PIN_4|VL53L0X_XSHUT_Pin|LED3_WIFI__LED4_BLE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(BUTTON_EXTI13_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : ARD_A5_Pin ARD_A4_Pin ARD_A3_Pin ARD_A2_Pin
-                           ARD_A1_Pin ARD_A0_Pin */
-  GPIO_InitStruct.Pin = ARD_A5_Pin|ARD_A4_Pin|ARD_A3_Pin|ARD_A2_Pin
-                          |ARD_A1_Pin|ARD_A0_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG_ADC_CONTROL;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pins : ARD_D1_Pin ARD_D0_Pin */
@@ -735,12 +616,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF8_UART4;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : ARD_D10_Pin SPBTLE_RF_RST_Pin ARD_D9_Pin */
-  GPIO_InitStruct.Pin = ARD_D10_Pin|SPBTLE_RF_RST_Pin|ARD_D9_Pin;
+  /*Configure GPIO pin : NFC_CS_Pin */
+  GPIO_InitStruct.Pin = NFC_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+  HAL_GPIO_Init(NFC_CS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ARD_D4_Pin */
   GPIO_InitStruct.Pin = ARD_D4_Pin;
@@ -750,19 +631,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF1_TIM2;
   HAL_GPIO_Init(ARD_D4_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : ARD_D7_Pin */
-  GPIO_InitStruct.Pin = ARD_D7_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG_ADC_CONTROL;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(ARD_D7_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : ARD_D13_Pin ARD_D12_Pin ARD_D11_Pin */
-  GPIO_InitStruct.Pin = ARD_D13_Pin|ARD_D12_Pin|ARD_D11_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  /*Configure GPIO pin : NFC_IRQ_Pin */
+  GPIO_InitStruct.Pin = NFC_IRQ_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(NFC_IRQ_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : ARD_D3_Pin */
   GPIO_InitStruct.Pin = ARD_D3_Pin;
@@ -800,18 +673,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : VL53L0X_XSHUT_Pin LED3_WIFI__LED4_BLE_Pin */
-  GPIO_InitStruct.Pin = VL53L0X_XSHUT_Pin|LED3_WIFI__LED4_BLE_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
   /*Configure GPIO pins : VL53L0X_GPIO1_EXTI7_Pin LSM3MDL_DRDY_EXTI8_Pin */
   GPIO_InitStruct.Pin = VL53L0X_GPIO1_EXTI7_Pin|LSM3MDL_DRDY_EXTI8_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : SPBTLE_RF_RST_Pin ARD_D9_Pin */
+  GPIO_InitStruct.Pin = SPBTLE_RF_RST_Pin|ARD_D9_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PMOD_SPI2_SCK_Pin */
   GPIO_InitStruct.Pin = PMOD_SPI2_SCK_Pin;
@@ -850,7 +723,101 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static uint8_t FillAudioBuffer(uint8_t *buffer, uint32_t length)
+{
+  uint8_t endReached = 0U;
 
+  for (uint32_t i = 0U; i < length; ++i)
+  {
+    if (audioSourceRemaining >= 2U)
+    {
+      int16_t sample = (int16_t)((uint16_t)audioSource[0] |
+                                 ((uint16_t)audioSource[1] << 8));
+      int32_t output = 128 + ((int32_t)sample / 256);
+
+      if (output < 0) output = 0;
+      if (output > 255) output = 255;
+      buffer[i] = (uint8_t)output;
+      audioSource += 2U;
+      audioSourceRemaining -= 2U;
+    }
+    else
+    {
+      buffer[i] = 128U;
+      endReached = 1U;
+    }
+  }
+
+  return endReached;
+}
+
+void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac)
+{
+  if (audioEndReached)
+  {
+    HAL_TIM_Base_Stop(&htim6);
+    HAL_DAC_Stop_DMA(hdac, DAC_CHANNEL_1);
+    transferCompleteDetected = 1U;
+    return;
+  }
+  audioEndReached = FillAudioBuffer(audioBuffer, AUDIO_BUFFER_SIZE / 2U);
+}
+
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
+{
+  if (audioEndReached)
+  {
+    HAL_TIM_Base_Stop(&htim6);
+    HAL_DAC_Stop_DMA(hdac, DAC_CHANNEL_1);
+    transferCompleteDetected = 1U;
+    return;
+  }
+  audioEndReached = FillAudioBuffer(&audioBuffer[AUDIO_BUFFER_SIZE / 2U],
+                                    AUDIO_BUFFER_SIZE / 2U);
+}
+
+static void PlaySound(const uint8_t *wav, uint32_t wavlength)
+{
+  if (transferCompleteDetected == 0U) return;
+  transferCompleteDetected = 0U;
+
+  HAL_TIM_Base_Stop(&htim6);
+  audioSource = wav;
+  audioSourceRemaining = wavlength;
+  audioEndReached = FillAudioBuffer(audioBuffer, AUDIO_BUFFER_SIZE / 2U);
+  audioEndReached |= FillAudioBuffer(&audioBuffer[AUDIO_BUFFER_SIZE / 2U],
+                                     AUDIO_BUFFER_SIZE / 2U);
+
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)audioBuffer,
+                        AUDIO_BUFFER_SIZE, DAC_ALIGN_8B_R) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  HAL_TIM_Base_Start(&htim6);
+}
+
+void nfc_on_card_placed(const char *uid_hex)
+{
+  printf(">>> CARTE POSEE : %s\r\n", uid_hex);
+  if (strcmp(uid_hex, SOUP_UID) == 0)
+  {
+    PlaySound(&soup_audio[WAV_HEADER_SIZE],
+              (uint32_t)soup_audio_size - WAV_HEADER_SIZE);
+  }
+  else if (strcmp(uid_hex, SEEP_UID) == 0)
+  {
+    PlaySound(&seep_audio[WAV_HEADER_SIZE],
+              (uint32_t)seep_audio_size - WAV_HEADER_SIZE);
+  }
+}
+
+void nfc_on_card_removed(const char *uid_hex)
+{
+  printf(">>> CARTE RETIREE : %s\r\n", uid_hex);
+  HAL_TIM_Base_Stop(&htim6);
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+  transferCompleteDetected = 1U;
+}
 /* USER CODE END 4 */
 
 /**

@@ -7,7 +7,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2025 STMicroelectronics.
+  * Copyright (c) 2026 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -29,6 +29,8 @@ extern "C" {
 /* Includes ------------------------------------------------------------------*/
 #include "stm32l4xx_hal.h"
 
+#include "nfc_conf.h"
+#include "b_l475e_iot01a2.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -63,43 +65,29 @@ void Error_Handler(void);
 #define USB_OTG_FS_OVRCR_EXTI3_GPIO_Port GPIOE
 #define M24SR64_Y_GPO_Pin GPIO_PIN_4
 #define M24SR64_Y_GPO_GPIO_Port GPIOE
-#define SPSGRF_915_GPIO3_EXTI5_Pin GPIO_PIN_5
-#define SPSGRF_915_GPIO3_EXTI5_GPIO_Port GPIOE
-#define SPSGRF_915_GPIO3_EXTI5_EXTI_IRQn EXTI9_5_IRQn
 #define SPBTLE_RF_IRQ_EXTI6_Pin GPIO_PIN_6
 #define SPBTLE_RF_IRQ_EXTI6_GPIO_Port GPIOE
 #define SPBTLE_RF_IRQ_EXTI6_EXTI_IRQn EXTI9_5_IRQn
-#define BUTTON_EXTI13_Pin GPIO_PIN_13
-#define BUTTON_EXTI13_GPIO_Port GPIOC
-#define BUTTON_EXTI13_EXTI_IRQn EXTI15_10_IRQn
-#define ARD_A5_Pin GPIO_PIN_0
-#define ARD_A5_GPIO_Port GPIOC
-#define ARD_A4_Pin GPIO_PIN_1
-#define ARD_A4_GPIO_Port GPIOC
-#define ARD_A3_Pin GPIO_PIN_2
-#define ARD_A3_GPIO_Port GPIOC
-#define ARD_A2_Pin GPIO_PIN_3
-#define ARD_A2_GPIO_Port GPIOC
+#define BSP_BUTTON_EXTI_IRQn EXTI15_10_IRQn
 #define ARD_D1_Pin GPIO_PIN_0
 #define ARD_D1_GPIO_Port GPIOA
 #define ARD_D0_Pin GPIO_PIN_1
 #define ARD_D0_GPIO_Port GPIOA
-#define ARD_D10_Pin GPIO_PIN_2
-#define ARD_D10_GPIO_Port GPIOA
+#define NFC_CS_Pin GPIO_PIN_2
+#define NFC_CS_GPIO_Port GPIOA
 #define ARD_D4_Pin GPIO_PIN_3
 #define ARD_D4_GPIO_Port GPIOA
-#define ARD_D7_Pin GPIO_PIN_4
-#define ARD_D7_GPIO_Port GPIOA
+#define DAC_OUT1_Pin GPIO_PIN_4
+#define DAC_OUT1_GPIO_Port GPIOA
 #define ARD_D13_Pin GPIO_PIN_5
 #define ARD_D13_GPIO_Port GPIOA
 #define ARD_D12_Pin GPIO_PIN_6
 #define ARD_D12_GPIO_Port GPIOA
 #define ARD_D11_Pin GPIO_PIN_7
 #define ARD_D11_GPIO_Port GPIOA
-#define ARD_A1_Pin GPIO_PIN_4
-#define ARD_A1_GPIO_Port GPIOC
-#define ARD_A0_Pin GPIO_PIN_5
-#define ARD_A0_GPIO_Port GPIOC
+#define NFC_IRQ_Pin GPIO_PIN_5
+#define NFC_IRQ_GPIO_Port GPIOC
+#define NFC_IRQ_EXTI_IRQn EXTI9_5_IRQn
 #define ARD_D3_Pin GPIO_PIN_0
 #define ARD_D3_GPIO_Port GPIOB
 #define ARD_D6_Pin GPIO_PIN_1
