@@ -22,13 +22,13 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include "soup.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum {
-  PLAY_MODE_SINE = 0,   /* 440 Hz sine, circular DMA, loops forever */
-  PLAY_MODE_WAV         /* CestOkay wav, normal DMA, one shot per key press */
+  PLAY_MODE_SOUP = 0    /* soup.wav buffer, normal DMA, one shot per key press */
 } PlayMode_t;
 
 /* USER CODE END PTD */
@@ -36,6 +36,7 @@ typedef enum {
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define BUTTON_DEBOUNCE_MS   200U
+#define SOUP_WAV_HEADER_SIZE 44U
 
 /* USER CODE END PD */
 
@@ -64,12 +65,9 @@ UART_HandleTypeDef huart3;
 PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
-extern const long int CestOkay_8khzu8_wav_size;
-extern const unsigned char CestOkay_8khzu8_wav[];
-extern const long int Sine440_8khzu8_size;
-extern const unsigned char Sine440_8khzu8[];
+static uint8_t soup_pcm_u8[(sizeof(soup_audio) - SOUP_WAV_HEADER_SIZE) / 2U];
 static __IO uint32_t transferCompleteDetected=1; /* Set to 1 if transfer is correctly completed */
-static __IO PlayMode_t playMode = PLAY_MODE_SINE;
+static __IO PlayMode_t playMode = PLAY_MODE_SOUP;
 static __IO uint32_t buttonPressed = 0;          /* set by EXTI13 (blue button) callback */
 static __IO uint32_t lastButtonTick = 0;
 /* USER CODE END PV */
@@ -90,7 +88,6 @@ static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 static void DAC_StopOutput(void);
 static void DAC_SetDmaMode(uint32_t mode);
-static void PlaySine(void);
 static void PlaySound(void);
 
 /* USER CODE END PFP */
@@ -100,8 +97,7 @@ static void PlaySound(void);
 /* DAC DMA transfer complete (end of buffer) */
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
 {
-  /* In sine mode DMA is circular: this fires at every loop of the table, ignore it */
-  if (playMode == PLAY_MODE_WAV)
+  if (playMode == PLAY_MODE_SOUP)
   {
     transferCompleteDetected = 1;
     /*##- Stop TIM peripheral counter ######################################*/
@@ -144,30 +140,33 @@ static void DAC_SetDmaMode(uint32_t mode)
   __HAL_LINKDMA(&hdac1, DMA_Handle1, hdma_dac_ch1);
 }
 
-/* Output the 440 Hz sine table continuously (circular DMA, 8 kHz TIM6 trigger) */
-static void PlaySine(void)
+/* Convert the 16-bit PCM WAV samples to unsigned 8-bit DAC samples. */
+static void PrepareSoupAudio(void)
 {
-  DAC_StopOutput();
-  playMode = PLAY_MODE_SINE;
-  DAC_SetDmaMode(DMA_CIRCULAR);
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)&Sine440_8khzu8[0], Sine440_8khzu8_size, DAC_ALIGN_8B_R) != HAL_OK)
+  uint32_t sampleCount = ((uint32_t)soup_audio_size - SOUP_WAV_HEADER_SIZE) / 2U;
+
+  for (uint32_t i = 0; i < sampleCount; i++)
   {
-    Error_Handler();
+    uint32_t offset = SOUP_WAV_HEADER_SIZE + (2U * i);
+    int32_t sample = (int16_t)((uint16_t)soup_audio[offset] |
+                               ((uint16_t)soup_audio[offset + 1U] << 8));
+    soup_pcm_u8[i] = (uint8_t)((sample >> 8) + 128);
   }
-  HAL_TIM_Base_Start(&htim6);
 }
 
-/* Output CestOkay_8khzu8_wav once (normal DMA, 8 kHz TIM6 trigger), non blocking */
+/* Output the soup.wav buffer once at 16 kHz, non blocking */
 static void PlaySound(void)
 {
-  // if wav is already playing just exit
-  if ((playMode == PLAY_MODE_WAV) && (transferCompleteDetected == 0)) return;
+  /* If the WAV is already playing, just exit. */
+  if ((playMode == PLAY_MODE_SOUP) && (transferCompleteDetected == 0)) return;
   DAC_StopOutput();
-  playMode = PLAY_MODE_WAV;
+  playMode = PLAY_MODE_SOUP;
   transferCompleteDetected = 0;
   DAC_SetDmaMode(DMA_NORMAL);
+  PrepareSoupAudio();
   /*##- Enable DAC selected channel and associated DMA #############################*/
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)&CestOkay_8khzu8_wav[0], CestOkay_8khzu8_wav_size, DAC_ALIGN_8B_R) != HAL_OK)
+  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)&soup_pcm_u8[0],
+                        sizeof(soup_pcm_u8), DAC_ALIGN_8B_R) != HAL_OK)
   {
     /* Start DMA Error */
     Error_Handler();
@@ -230,7 +229,7 @@ int main(void)
 	  if (buttonPressed)
 	  {
 		  buttonPressed = 0;
-		  PlaySine();
+		  PlaySound();
 	  }
   }
   /* USER CODE END 3 */
@@ -516,7 +515,7 @@ static void MX_TIM6_Init(void)
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 79;
+  htim6.Init.Prescaler = 39;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 124;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
