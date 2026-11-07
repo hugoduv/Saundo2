@@ -38,6 +38,7 @@
 /* USER CODE BEGIN PD */
 #define WAV_HEADER_SIZE          44U
 #define AUDIO_BUFFER_SIZE        1024U
+#define AUDIO_FADE_SAMPLES       128U
 #define SOUP_UID                 "04301DCA936680"
 #define SEEP_UID                 "04912BEAD81990"
 
@@ -72,7 +73,17 @@ static volatile uint32_t transferCompleteDetected = 1U;
 static uint8_t audioBuffer[AUDIO_BUFFER_SIZE];
 static const uint8_t *audioSource;
 static uint32_t audioSourceRemaining;
+static uint32_t audioSourceTotal;
+static uint32_t audioSourcePosition;
 static volatile uint8_t audioEndReached;
+
+static void StopAudio(void)
+{
+  HAL_TIM_Base_Stop(&htim6);
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_8B_R, 128U);
+  transferCompleteDetected = 1U;
+}
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -726,6 +737,12 @@ static void MX_GPIO_Init(void)
 static uint8_t FillAudioBuffer(uint8_t *buffer, uint32_t length)
 {
   uint8_t endReached = 0U;
+  uint32_t fadeSamples = audioSourceTotal;
+
+  if (fadeSamples > AUDIO_FADE_SAMPLES)
+  {
+    fadeSamples = AUDIO_FADE_SAMPLES;
+  }
 
   for (uint32_t i = 0U; i < length; ++i)
   {
@@ -733,13 +750,27 @@ static uint8_t FillAudioBuffer(uint8_t *buffer, uint32_t length)
     {
       int16_t sample = (int16_t)((uint16_t)audioSource[0] |
                                  ((uint16_t)audioSource[1] << 8));
-      int32_t output = 128 + ((int32_t)sample / 256);
+      uint32_t gain = fadeSamples;
+      int32_t output;
+
+      if (audioSourcePosition < fadeSamples)
+      {
+        gain = audioSourcePosition;
+      }
+      else if (audioSourcePosition >= (audioSourceTotal - fadeSamples))
+      {
+        gain = audioSourceTotal - audioSourcePosition - 1U;
+      }
+
+      output = 128 + (((int32_t)sample * (int32_t)gain) /
+                      (256 * (int32_t)fadeSamples));
 
       if (output < 0) output = 0;
       if (output > 255) output = 255;
       buffer[i] = (uint8_t)output;
       audioSource += 2U;
       audioSourceRemaining -= 2U;
+      audioSourcePosition++;
     }
     else
     {
@@ -753,11 +784,10 @@ static uint8_t FillAudioBuffer(uint8_t *buffer, uint32_t length)
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac)
 {
+  (void)hdac;
   if (audioEndReached)
   {
-    HAL_TIM_Base_Stop(&htim6);
-    HAL_DAC_Stop_DMA(hdac, DAC_CHANNEL_1);
-    transferCompleteDetected = 1U;
+    StopAudio();
     return;
   }
   audioEndReached = FillAudioBuffer(audioBuffer, AUDIO_BUFFER_SIZE / 2U);
@@ -765,11 +795,10 @@ void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac)
 
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
 {
+  (void)hdac;
   if (audioEndReached)
   {
-    HAL_TIM_Base_Stop(&htim6);
-    HAL_DAC_Stop_DMA(hdac, DAC_CHANNEL_1);
-    transferCompleteDetected = 1U;
+    StopAudio();
     return;
   }
   audioEndReached = FillAudioBuffer(&audioBuffer[AUDIO_BUFFER_SIZE / 2U],
@@ -781,9 +810,11 @@ static void PlaySound(const uint8_t *wav, uint32_t wavlength)
   if (transferCompleteDetected == 0U) return;
   transferCompleteDetected = 0U;
 
-  HAL_TIM_Base_Stop(&htim6);
+  StopAudio();
   audioSource = wav;
   audioSourceRemaining = wavlength;
+  audioSourceTotal = wavlength / 2U;
+  audioSourcePosition = 0U;
   audioEndReached = FillAudioBuffer(audioBuffer, AUDIO_BUFFER_SIZE / 2U);
   audioEndReached |= FillAudioBuffer(&audioBuffer[AUDIO_BUFFER_SIZE / 2U],
                                      AUDIO_BUFFER_SIZE / 2U);
@@ -793,6 +824,7 @@ static void PlaySound(const uint8_t *wav, uint32_t wavlength)
   {
     Error_Handler();
   }
+  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_8B_R, 128U);
   HAL_TIM_Base_Start(&htim6);
 }
 
@@ -814,9 +846,7 @@ void nfc_on_card_placed(const char *uid_hex)
 void nfc_on_card_removed(const char *uid_hex)
 {
   printf(">>> CARTE RETIREE : %s\r\n", uid_hex);
-  HAL_TIM_Base_Stop(&htim6);
-  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-  transferCompleteDetected = 1U;
+  StopAudio();
 }
 /* USER CODE END 4 */
 
