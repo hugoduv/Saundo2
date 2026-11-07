@@ -1,14 +1,20 @@
 [
   {
     "uid": "04301DCA936680",
-    "title": "rick",
-    "file": "rick.wav",
+    "title": "ricka",
+    "file": "ricka.wav",
     "enabled": true
   },
   {
     "uid": "04912BEAD81990",
-    "title": "seep",
-    "file": "seep.wav",
+    "title": "fontaines",
+    "file": "fontaines.wav",
+    "enabled": true
+  },
+  {
+    "uid": "7887CE53",
+    "title": "verts",
+    "file": "verts.wav",
     "enabled": true
   }
 ]

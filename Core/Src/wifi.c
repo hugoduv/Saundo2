@@ -50,6 +50,12 @@ WIFI_Status_t WIFI_Init(void)
   return ret;
 }
 
+WIFI_Status_t WIFI_SetCommandTimeout(uint32_t timeout)
+{
+  return ES_WIFI_SetTimeout(&EsWifiObj, timeout) == ES_WIFI_STATUS_OK ?
+         WIFI_STATUS_OK : WIFI_STATUS_ERROR;
+}
+
 /**
   * @brief  List a defined number of available access points
   * @param  APs : pointer to APs structure

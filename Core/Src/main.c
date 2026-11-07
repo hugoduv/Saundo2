@@ -24,10 +24,9 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
-#include "soup.h"
-#include "seep.h"
 #include "nfc_events.h"
 #include "wifi_probe.h"
+#include "audio_stream.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,11 +36,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define WAV_HEADER_SIZE          44U
-#define AUDIO_BUFFER_SIZE        1024U
-#define AUDIO_FADE_SAMPLES       128U
-#define SOUP_UID                 "04301DCA936680"
-#define SEEP_UID                 "04912BEAD81990"
 
 /* USER CODE END PD */
 
@@ -70,21 +64,6 @@ PCD_HandleTypeDef hpcd_USB_OTG_FS;
 
 /* USER CODE BEGIN PV */
 extern EXTI_HandleTypeDef H_EXTI_5;
-static volatile uint32_t transferCompleteDetected = 1U;
-static uint8_t audioBuffer[AUDIO_BUFFER_SIZE];
-static const uint8_t *audioSource;
-static uint32_t audioSourceRemaining;
-static uint32_t audioSourceTotal;
-static uint32_t audioSourcePosition;
-static volatile uint8_t audioEndReached;
-
-static void StopAudio(void)
-{
-  HAL_TIM_Base_Stop(&htim6);
-  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_8B_R, 128U);
-  transferCompleteDetected = 1U;
-}
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -161,6 +140,7 @@ int main(void)
   MX_X_CUBE_NFC6_Process();
     /* USER CODE BEGIN 3 */
   nfc_events_poll();
+  audio_stream_process();
   }
   /* USER CODE END 3 */
 }
@@ -736,119 +716,36 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-static uint8_t FillAudioBuffer(uint8_t *buffer, uint32_t length)
-{
-  uint8_t endReached = 0U;
-  uint32_t fadeSamples = audioSourceTotal;
-
-  if (fadeSamples > AUDIO_FADE_SAMPLES)
-  {
-    fadeSamples = AUDIO_FADE_SAMPLES;
-  }
-
-  for (uint32_t i = 0U; i < length; ++i)
-  {
-    if (audioSourceRemaining >= 2U)
-    {
-      int16_t sample = (int16_t)((uint16_t)audioSource[0] |
-                                 ((uint16_t)audioSource[1] << 8));
-      uint32_t gain = fadeSamples;
-      int32_t output;
-
-      if (audioSourcePosition < fadeSamples)
-      {
-        gain = audioSourcePosition;
-      }
-      else if (audioSourcePosition >= (audioSourceTotal - fadeSamples))
-      {
-        gain = audioSourceTotal - audioSourcePosition - 1U;
-      }
-
-      output = 128 + (((int32_t)sample * (int32_t)gain) /
-                      (256 * (int32_t)fadeSamples));
-
-      if (output < 0) output = 0;
-      if (output > 255) output = 255;
-      buffer[i] = (uint8_t)output;
-      audioSource += 2U;
-      audioSourceRemaining -= 2U;
-      audioSourcePosition++;
-    }
-    else
-    {
-      buffer[i] = 128U;
-      endReached = 1U;
-    }
-  }
-
-  return endReached;
-}
-
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac)
 {
-  (void)hdac;
-  if (audioEndReached)
-  {
-    StopAudio();
-    return;
-  }
-  audioEndReached = FillAudioBuffer(audioBuffer, AUDIO_BUFFER_SIZE / 2U);
+  audio_stream_dma_half(hdac);
 }
 
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac)
 {
-  (void)hdac;
-  if (audioEndReached)
-  {
-    StopAudio();
-    return;
-  }
-  audioEndReached = FillAudioBuffer(&audioBuffer[AUDIO_BUFFER_SIZE / 2U],
-                                    AUDIO_BUFFER_SIZE / 2U);
+  audio_stream_dma_complete(hdac);
 }
 
-static void PlaySound(const uint8_t *wav, uint32_t wavlength)
+void HAL_DAC_ErrorCallbackCh1(DAC_HandleTypeDef *hdac)
 {
-  if (transferCompleteDetected == 0U) return;
-  transferCompleteDetected = 0U;
+  audio_stream_dma_error(hdac);
+}
 
-  StopAudio();
-  audioSource = wav;
-  audioSourceRemaining = wavlength;
-  audioSourceTotal = wavlength / 2U;
-  audioSourcePosition = 0U;
-  audioEndReached = FillAudioBuffer(audioBuffer, AUDIO_BUFFER_SIZE / 2U);
-  audioEndReached |= FillAudioBuffer(&audioBuffer[AUDIO_BUFFER_SIZE / 2U],
-                                     AUDIO_BUFFER_SIZE / 2U);
-
-  if (HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)audioBuffer,
-                        AUDIO_BUFFER_SIZE, DAC_ALIGN_8B_R) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_8B_R, 128U);
-  HAL_TIM_Base_Start(&htim6);
+void HAL_DAC_DMAUnderrunCallbackCh1(DAC_HandleTypeDef *hdac)
+{
+  audio_stream_dma_error(hdac);
 }
 
 void nfc_on_card_placed(const char *uid_hex)
 {
   printf(">>> CARTE POSEE : %s\r\n", uid_hex);
-  if (strcmp(uid_hex, SOUP_UID) == 0)
-  {
-    PlaySound(&soup_audio[WAV_HEADER_SIZE],
-              (uint32_t)soup_audio_size - WAV_HEADER_SIZE);
-  }
-  else if (strcmp(uid_hex, SEEP_UID) == 0)
-  {
-    PlaySound(&seep_audio[WAV_HEADER_SIZE],
-              (uint32_t)seep_audio_size - WAV_HEADER_SIZE);
-  }
+  audio_stream_tag_placed(uid_hex);
 }
 
 void nfc_on_card_removed(const char *uid_hex)
 {
   printf(">>> CARTE RETIREE : %s\r\n", uid_hex);
-  StopAudio();
+  audio_stream_tag_removed();
 }
 /* USER CODE END 4 */
 

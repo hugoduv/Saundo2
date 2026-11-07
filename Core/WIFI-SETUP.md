@@ -1,8 +1,8 @@
 # Test Wi-Fi et serveur
 
-Cette étape teste la connexion Wi-Fi au démarrage puis l'endpoint `/health`.
-La lecture audio reste pour l'instant celle intégrée dans le firmware : le
-streaming n'est pas encore implémenté.
+Au démarrage, le firmware teste la connexion Wi-Fi et l'endpoint `/health`.
+Lorsqu'un tag est détecté, il demande son WAV au serveur et le lit pendant
+la réception. Le serveur doit rester lancé pendant la lecture.
 
 ## Préparation
 
@@ -23,8 +23,8 @@ streaming n'est pas encore implémenté.
 6. Dans STM32CubeIDE, rafraîchir le projet, compiler et flasher la carte.
    Ouvrir le port série ST-LINK à 115200 bauds, 8N1, puis redémarrer la carte.
 
-En l'absence du fichier local, le firmware saute le test et conserve le
-comportement NFC/audio existant. Le pilote initialise le module via SPI3
+En l'absence du fichier local, le firmware saute le test et signale que le
+streaming n'est pas disponible. Le pilote initialise le module via SPI3
 (16 bits, 10 MHz), indépendamment des paramètres SPI3 générés par CubeMX.
 Le test est bloquant et ne s'exécute qu'au démarrage, avant la boucle NFC.
 Les échecs sont signalés sur le port série ; redémarrer la carte pour réessayer.
@@ -32,6 +32,27 @@ Les échecs sont signalés sur le port série ; redémarrer la carte pour réess
 La réussite est indiquée par `[WIFI] Serveur /health OK.`. Si la connexion
 Wi-Fi fonctionne mais que le test TCP échoue, vérifier l'IPv4 du PC, le
 serveur, le pare-feu et l'isolation des clients du téléphone.
+
+## Lecture en streaming
+
+1. Redémarrer le serveur pour disposer de la route `/api/stream/<UID>`.
+   FFmpeg doit être installé et configuré comme indiqué dans `Server/README.md`.
+2. Après `[WIFI] Serveur /health OK.`, poser un tag associé à un fichier dans
+   `Server/data/tracks.json`. Attendre `[AUDIO] Lecture en cours.`. La première
+   demande peut prendre plus de temps car le serveur convertit le fichier.
+3. Retirer le tag : la lecture s'arrête après le délai de détection de retrait
+   (environ deux secondes lorsque la boucle NFC est disponible). Un tag inconnu,
+   une erreur réseau, un WAV non pris en charge ou un buffer vide arrête la
+   lecture et produit un message `[AUDIO]` sur le port série.
+
+La carte lit le WAV PCM mono 16 bits à 16 kHz, convertit les échantillons pour
+le DAC 8 bits et utilise un tampon de 32768 échantillons (environ deux secondes)
+avec préchargement d'une seconde. Les en-têtes HTTP et les blocs WAV sont lus
+progressivement ; il ne faut pas présumer un en-tête WAV de 44 octets. Le
+pilote Wi-Fi utilise des opérations bloquantes avec délais : la réactivité et
+le débit doivent être vérifiés sur la carte. En cas de perte réseau, retirer
+le tag et redémarrer la carte après rétablissement du Wi-Fi. HTTP est prévu
+pour ce prototype local, pas pour un serveur exposé sur Internet.
 
 Si la connexion échoue, le firmware indique si l'échec concerne la connexion
 au point d'accès ou la lecture des paramètres réseau, puis recherche le SSID

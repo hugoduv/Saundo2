@@ -21,6 +21,7 @@
 #define PROBE_RESPONSE_SIZE 512U
 
 static const uint8_t server_ip[4] = SAUNDO_SERVER_IP;
+static int wifi_ready;
 static WIFI_APs_t detected_networks;
 
 static void diagnose_wifi(void)
@@ -169,9 +170,45 @@ void wifi_probe_start(void)
            (unsigned)SAUNDO_SERVER_PORT);
     if (probe_server())
     {
-        printf("[WIFI] Serveur /health OK.\r\n");
+        if (WIFI_SetCommandTimeout(3000U) == WIFI_STATUS_OK)
+        {
+            printf("[WIFI] Serveur /health OK.\r\n");
+            wifi_ready = 1;
+        }
+        else
+        {
+            printf("[WIFI] Configuration du delai du module impossible.\r\n");
+        }
     }
+
 #else
     printf("[WIFI] Configuration absente : voir wifi_settings.example.h.\r\n");
+#endif
+}
+
+int wifi_probe_is_ready(void)
+{
+#if SAUNDO_WIFI_CONFIGURED
+    return wifi_ready;
+#else
+    return 0;
+#endif
+}
+
+const uint8_t *wifi_probe_server_ip(void)
+{
+#if SAUNDO_WIFI_CONFIGURED
+    return server_ip;
+#else
+    return NULL;
+#endif
+}
+
+uint16_t wifi_probe_server_port(void)
+{
+#if SAUNDO_WIFI_CONFIGURED
+    return SAUNDO_SERVER_PORT;
+#else
+    return 0U;
 #endif
 }

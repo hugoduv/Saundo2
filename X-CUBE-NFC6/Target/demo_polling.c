@@ -42,6 +42,7 @@
 #include "utils.h"
 #include "rfal_nfc.h"
 #include "rfal_t2t.h"
+#include "nfc_events.h"
 
 #if RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE
 #include "demo_ce.h"
@@ -336,6 +337,9 @@ bool demoIni( void )
 void demoCycle( void )
 {
     static rfalNfcDevice *nfcDevice;
+#if defined(PLATFORM_USER_BUTTON_PORT) && defined(PLATFORM_USER_BUTTON_PIN)
+    static bool buttonPressed;
+#endif
 
     rfalNfcWorker();                                    /* Run RFAL worker periodically */
 
@@ -344,12 +348,17 @@ void demoCycle( void )
     /* Check if USER button is pressed */
     if( platformGpioIsLow(PLATFORM_USER_BUTTON_PORT, PLATFORM_USER_BUTTON_PIN))
     {
-        discParam.wakeupEnabled = !discParam.wakeupEnabled;    /* enable/disable wakeup */
-        state = DEMO_ST_START_DISCOVERY;                       /* restart loop          */
-        platformLog("Toggling Wake Up mode %s\r\n", discParam.wakeupEnabled ? "ON": "OFF");
-
-        /* Debounce button */
-        while( platformGpioIsLow(PLATFORM_USER_BUTTON_PORT, PLATFORM_USER_BUTTON_PIN) );
+        if (!buttonPressed)
+        {
+            buttonPressed = true;
+            discParam.wakeupEnabled = !discParam.wakeupEnabled;
+            state = DEMO_ST_START_DISCOVERY;
+            platformLog("Toggling Wake Up mode %s\r\n", discParam.wakeupEnabled ? "ON": "OFF");
+        }
+    }
+    else
+    {
+        buttonPressed = false;
     }
 #endif /* PLATFORM_USER_BUTTON_PIN */
 
@@ -378,6 +387,17 @@ void demoCycle( void )
             if( rfalNfcIsDevActivated( rfalNfcGetState() ) )
             {
                 rfalNfcGetActiveDevice( &nfcDevice );
+                if (nfcDevice->type == RFAL_NFC_LISTEN_TYPE_NFCA ||
+                    nfcDevice->type == RFAL_NFC_LISTEN_TYPE_NFCB ||
+                    nfcDevice->type == RFAL_NFC_LISTEN_TYPE_NFCF ||
+                    nfcDevice->type == RFAL_NFC_LISTEN_TYPE_NFCV ||
+                    nfcDevice->type == RFAL_NFC_LISTEN_TYPE_ST25TB)
+                {
+                    nfc_events_card_seen(nfcDevice->nfcid, nfcDevice->nfcidLen);
+                    rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
+                    state = DEMO_ST_START_DISCOVERY;
+                    break;
+                }
 
                 switch( nfcDevice->type )
                 {
@@ -824,4 +844,3 @@ ReturnCode demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t *
 /**
   * @}
   */
-
