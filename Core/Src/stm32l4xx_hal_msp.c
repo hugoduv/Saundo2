@@ -437,6 +437,10 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* hspi)
     HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
     /* USER CODE BEGIN SPI3_MspInit 1 */
+    /* The ISM43362 SPI interface requires a pull-up on MISO. */
+    GPIO_InitStruct.Pin = INTERNAL_SPI3_MISO_Pin;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
+    HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
     /* USER CODE END SPI3_MspInit 1 */
 

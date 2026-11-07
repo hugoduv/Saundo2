@@ -217,7 +217,9 @@ async function handleRequest(request, response) {
     return;
   }
 
-  if (pathParts[0] === "api" && pathParts[1] === "tracks" && request.method === "GET") {
+  if (pathParts.length === 3 && pathParts[0] === "api" &&
+      (pathParts[1] === "tracks" || pathParts[1] === "stream") &&
+      request.method === "GET") {
     const uid = normalizeUid(pathParts[2] ?? "");
     if (!/^[0-9A-F]{8,32}$/.test(uid)) {
       sendError(response, 400, "UID must contain between 8 and 32 hexadecimal characters");
@@ -230,6 +232,11 @@ async function handleRequest(request, response) {
     );
     if (!track) {
       sendError(response, 404, "No enabled track is associated with this UID");
+      return;
+    }
+
+    if (pathParts[1] === "stream") {
+      await serveAudio(request, response, track.file);
       return;
     }
 

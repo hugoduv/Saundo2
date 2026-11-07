@@ -22,6 +22,7 @@
 #include "stm32l4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "es_wifi_io.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -59,6 +60,7 @@ extern DMA_HandleTypeDef hdma_dac_ch1;
 extern DAC_HandleTypeDef hdac1;
 extern TIM_HandleTypeDef htim6;
 /* USER CODE BEGIN EV */
+extern SPI_HandleTypeDef hspi;
 
 /* USER CODE END EV */
 
@@ -265,5 +267,22 @@ void TIM6_DAC_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
+void EXTI1_IRQHandler(void)
+{
+  HAL_GPIO_EXTI_IRQHandler(ISM43362_DRDY_EXTI1_Pin);
+}
+
+void SPI3_IRQHandler(void)
+{
+  HAL_SPI_IRQHandler(&hspi);
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == ISM43362_DRDY_EXTI1_Pin)
+  {
+    SPI_WIFI_ISR();
+  }
+}
 
 /* USER CODE END 1 */

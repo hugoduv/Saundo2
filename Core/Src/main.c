@@ -27,6 +27,7 @@
 #include "soup.h"
 #include "seep.h"
 #include "nfc_events.h"
+#include "wifi_probe.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -148,6 +149,7 @@ int main(void)
   MX_X_CUBE_NFC6_Init();
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2, GPIO_PIN_SET);
+  wifi_probe_start();
   /* USER CODE END 2 */
 
   /* Infinite loop */

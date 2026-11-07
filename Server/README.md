@@ -77,6 +77,17 @@ L'endpoint audio accepte aussi l'en-tête HTTP `Range`, utile pour le streaming
 et la reprise d'un téléchargement. Les métadonnées de l'API décrivent toujours
 le fichier **converti**, et non le format du fichier original.
 
+Pour un appareil embarqué, il est aussi possible de récupérer directement le
+WAV converti associé à un UID, sans analyser la réponse JSON :
+
+```text
+GET http://localhost:8080/api/stream/04301DCA936680
+```
+
+Cette route renvoie 404 si l'UID est inconnu, désactivé ou si son fichier
+audio manque. Elle accepte également `Range`. Un en-tête WAV ne fait pas
+nécessairement 44 octets : le lecteur doit rechercher le bloc `data`.
+
 ## Ajouter une musique
 
 1. Ajouter le fichier dans `audio/` (par exemple WAV ou MP3 lisible par FFmpeg).

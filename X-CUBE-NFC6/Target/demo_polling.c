@@ -42,7 +42,6 @@
 #include "utils.h"
 #include "rfal_nfc.h"
 #include "rfal_t2t.h"
-#include "nfc_events.h"
 
 #if RFAL_SUPPORT_CE && RFAL_FEATURE_LISTEN_MODE
 #include "demo_ce.h"
@@ -379,7 +378,6 @@ void demoCycle( void )
             if( rfalNfcIsDevActivated( rfalNfcGetState() ) )
             {
                 rfalNfcGetActiveDevice( &nfcDevice );
-                nfc_events_card_seen( nfcDevice->nfcid, nfcDevice->nfcidLen );
 
                 switch( nfcDevice->type )
                 {
@@ -826,3 +824,4 @@ ReturnCode demoTransceiveBlocking( uint8_t *txBuf, uint16_t txBufSize, uint8_t *
 /**
   * @}
   */
+
