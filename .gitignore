@@ -1,2 +1,11 @@
 Debug/
 .vscode/
+
+
+*.mp3
+*.wav
+
+!server/audio/
+!server/audio/*.wav
+
+/Core/Inc/wifi_settings.local.h

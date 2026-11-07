@@ -1,0 +1,20 @@
+[
+  {
+    "uid": "04301DCA936680",
+    "title": "ricka",
+    "file": "ricka.wav",
+    "enabled": true
+  },
+  {
+    "uid": "04912BEAD81990",
+    "title": "fontaines",
+    "file": "fontaines.wav",
+    "enabled": true
+  },
+  {
+    "uid": "7887CE53",
+    "title": "verts",
+    "file": "verts.wav",
+    "enabled": true
+  }
+]
