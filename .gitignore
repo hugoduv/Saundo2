@@ -1,2 +1,5 @@
 Debug/
 .vscode/
+
+*.mp3
+*.wav
