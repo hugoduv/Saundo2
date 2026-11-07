@@ -1,20 +1,21 @@
 import { createReadStream } from "node:fs";
 import { promises as fs } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const serverDirectory = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const dataFile = join(serverDirectory, "data", "tracks.json");
 const audioDirectory = resolve(serverDirectory, "audio");
+const cacheDirectory = join(serverDirectory, "cache");
 const port = Number.parseInt(process.env.PORT ?? "8080", 10);
 const host = process.env.HOST ?? "0.0.0.0";
+const ffmpeg = process.env.FFMPEG_PATH ?? "ffmpeg";
+const conversions = new Map();
 
-const audioContentTypes = {
-  ".wav": "audio/wav",
-  ".mp3": "audio/mpeg",
-  ".ogg": "audio/ogg"
-};
+const outputFormat = { format: "wav", sampleRate: 16000, channels: 1, bitsPerSample: 16 };
 
 function normalizeUid(uid) {
   return uid.replace(/[^0-9a-f]/gi, "").toUpperCase();
@@ -58,16 +59,69 @@ function audioPathFor(fileName) {
   return filePath;
 }
 
+function runFfmpeg(source, destination) {
+  return new Promise((resolveConversion, rejectConversion) => {
+    const process = spawn(ffmpeg, [
+      "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+      "-i", source, "-map", "0:a:0", "-vn",
+      "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+      "-f", "wav", destination
+    ], { stdio: ["ignore", "ignore", "pipe"] });
+    let errors = "";
+    process.stderr.on("data", (chunk) => { errors += chunk.toString(); });
+    process.on("error", rejectConversion);
+    process.on("close", (code) => {
+      if (code === 0) {
+        resolveConversion();
+      } else {
+        rejectConversion(new Error(`FFmpeg failed (code ${code}): ${errors.trim()}`));
+      }
+    });
+  });
+}
+
+async function convertedAudioPath(source, sourceStats) {
+  const key = createHash("sha256")
+    .update(JSON.stringify([source, sourceStats.size, sourceStats.mtimeMs, sourceStats.ctimeMs]))
+    .digest("hex");
+  const output = join(cacheDirectory, `${key}.wav`);
+  if (!conversions.has(key)) {
+    const conversion = (async () => {
+      await fs.mkdir(cacheDirectory, { recursive: true });
+      try {
+        await fs.access(output);
+        return output;
+      } catch (error) {
+        if (error.code !== "ENOENT") throw error;
+      }
+      const temporary = join(cacheDirectory, `${key}-${randomUUID()}.tmp`);
+      try {
+        await runFfmpeg(source, temporary);
+        await fs.rename(temporary, output);
+      } finally {
+        await fs.rm(temporary, { force: true });
+      }
+      return output;
+    })();
+    conversions.set(key, conversion);
+    conversion.then(
+      () => conversions.delete(key),
+      () => conversions.delete(key)
+    );
+  }
+  return conversions.get(key);
+}
+
 async function serveAudio(request, response, fileName) {
-  const filePath = audioPathFor(fileName);
-  if (!filePath) {
+  const sourcePath = audioPathFor(fileName);
+  if (!sourcePath) {
     sendError(response, 400, "Invalid audio file");
     return;
   }
 
   let fileStats;
   try {
-    fileStats = await fs.stat(filePath);
+    fileStats = await fs.stat(sourcePath);
   } catch (error) {
     if (error.code === "ENOENT") {
       sendError(response, 404, "Audio file not found");
@@ -81,7 +135,8 @@ async function serveAudio(request, response, fileName) {
     return;
   }
 
-  const contentType = audioContentTypes[extname(filePath).toLowerCase()] ?? "application/octet-stream";
+  const filePath = await convertedAudioPath(sourcePath, fileStats);
+  fileStats = await fs.stat(filePath);
   const range = request.headers.range;
   let start = 0;
   let end = fileStats.size - 1;
@@ -121,7 +176,7 @@ async function serveAudio(request, response, fileName) {
   const headers = {
     "Accept-Ranges": "bytes",
     "Content-Length": fileStats.size === 0 ? 0 : end - start + 1,
-    "Content-Type": contentType,
+    "Content-Type": "audio/wav",
     "Access-Control-Allow-Origin": "*"
   };
   if (statusCode === 206) {
@@ -181,10 +236,7 @@ async function handleRequest(request, response) {
     sendJson(response, 200, {
       uid,
       title: track.title,
-      format: track.format,
-      sampleRate: track.sampleRate,
-      channels: track.channels,
-      bitsPerSample: track.bitsPerSample,
+      ...outputFormat,
       audioUrl: new URL(`/audio/${encodeURIComponent(track.file)}`, requestUrl).toString()
     });
     return;

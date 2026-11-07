@@ -1,22 +1,14 @@
 [
   {
     "uid": "04301DCA936680",
-    "title": "soup",
-    "file": "soup.wav",
-    "format": "wav",
-    "sampleRate": 16000,
-    "channels": 1,
-    "bitsPerSample": 16,
+    "title": "rick",
+    "file": "rick.wav",
     "enabled": true
   },
   {
     "uid": "04912BEAD81990",
     "title": "seep",
     "file": "seep.wav",
-    "format": "wav",
-    "sampleRate": 16000,
-    "channels": 1,
-    "bitsPerSample": 16,
     "enabled": true
   }
 ]
