@@ -13,8 +13,8 @@
   },
   {
     "uid": "7887CE53",
-    "title": "jack",
-    "file": "jack.wav",
+    "title": "verts",
+    "file": "verts.wav",
     "enabled": true
   },
   {
@@ -22,5 +22,12 @@
     "title": "dragon",
     "file": "dragon.wav",
     "enabled": true
+  },
+  {
+    "uid": "95DB8E31",
+    "title": "careless",
+    "file": "careless.wav",
+    "enabled": true
   }
+
 ]
