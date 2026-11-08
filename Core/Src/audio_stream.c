@@ -32,6 +32,7 @@ typedef enum {
 } play_result_t;
 
 static stream_state_t state = STREAM_IDLE;
+static uint32_t stream_session;
 static char pending_uid[NFC_UID_STR_LEN];
 static uint8_t socket_open;
 static uint8_t network[NETWORK_BLOCK];
@@ -386,6 +387,7 @@ static void reset_stream(void)
 void audio_stream_tag_placed(const char *uid)
 {
     stop_dac();
+    ++stream_session;
     play_result = PLAY_OK;
     if (strlen(uid) >= sizeof(pending_uid))
     {
@@ -403,6 +405,24 @@ void audio_stream_tag_removed(void)
     stop_dac();
     pending_uid[0] = '\0';
     state = STREAM_IDLE;
+}
+
+void audio_stream_stop_voice(void)
+{
+    stop_dac();
+    pending_uid[0] = '\0';
+    state = STREAM_IDLE;
+    close_socket();
+}
+
+int audio_stream_active(void)
+{
+    return state != STREAM_IDLE && state != STREAM_FAILED;
+}
+
+uint32_t audio_stream_session(void)
+{
+    return stream_session;
 }
 
 void audio_stream_process(void)

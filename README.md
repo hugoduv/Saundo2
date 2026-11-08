@@ -25,6 +25,13 @@ its audio output. Removing the tag stops playback.
   channel 3 in circular mode**, with a 1024-byte DAC buffer.
 - A network error or empty buffer stops playback. Streaming operation and
   stability still need to be verified on the board.
+- During loading and playback, the board sends microphone audio to the local
+  server for offline recognition of the word "stop". Saying it stops playback;
+  remove and replace the tag to play again. This experimental feature requires
+  Windows and a French Windows speech recognizer on the server. It needs
+  validation on the board, especially with sound playing through the speaker.
+  Microphone audio crosses the local network unencrypted and is not saved by
+  this software. Do not expose the server to an untrusted network.
 
 ## Server and configuration
 

@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { startVoiceServer } from "./voice-server.js";
 
 const serverDirectory = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const dataFile = join(serverDirectory, "data", "tracks.json");
@@ -278,3 +279,9 @@ const server = createServer((request, response) => {
 server.listen(port, host, () => {
   console.log(`Saundo2 server listening on http://${host}:${port}`);
 });
+
+if (process.platform === "win32" && port < 65535) {
+  startVoiceServer(host, port + 1);
+} else {
+  console.error("[VOICE] Reconnaissance indisponible : Windows et un port libre sont necessaires.");
+}

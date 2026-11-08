@@ -27,6 +27,7 @@
 #include "nfc_events.h"
 #include "wifi_probe.h"
 #include "audio_stream.h"
+#include "voice_stop.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -129,6 +130,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2, GPIO_PIN_SET);
   wifi_probe_start();
+  voice_stop_init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -141,6 +143,7 @@ int main(void)
     /* USER CODE BEGIN 3 */
   nfc_events_poll();
   audio_stream_process();
+  voice_stop_process();
   }
   /* USER CODE END 3 */
 }

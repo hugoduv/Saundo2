@@ -186,6 +186,11 @@ void HAL_DFSDM_ChannelMspInit(DFSDM_Channel_HandleTypeDef* hdfsdm_channel)
   if(DFSDM1_Init == 0)
   {
     /* USER CODE BEGIN DFSDM1_MspInit 0 */
+    /* Override the generated divider before HAL enables the microphone clock. */
+    if (hdfsdm_channel->Instance == DFSDM1_Channel1)
+    {
+      hdfsdm_channel->Init.OutputClock.Divider = 50U;
+    }
 
     /* USER CODE END DFSDM1_MspInit 0 */
 

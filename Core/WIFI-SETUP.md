@@ -54,6 +54,19 @@ le débit doivent être vérifiés sur la carte. En cas de perte réseau, retire
 le tag et redémarrer la carte après rétablissement du Wi-Fi. HTTP est prévu
 pour ce prototype local, pas pour un serveur exposé sur Internet.
 
+La commande vocale expérimentale utilise le microphone intégré et le serveur
+Windows local. Autoriser aussi le port TCP suivant le port HTTP (8081 par
+défaut), puis vérifier `[VOICE] Ecoute active.` avant de dire « stop ».
+L'audio du microphone est transmis en clair sur le réseau local pendant le
+chargement et la lecture. Il n'est pas sauvegardé par le serveur. Après
+`[VOICE] Stop reconnu.`, retirer puis reposer le tag pour relancer la lecture.
+Le fonctionnement et la fiabilité en présence du haut-parleur doivent être
+vérifiés sur la carte ; voir `Server/README.md`.
+Le microphone utilise DFSDM1 canal 1 et filtre 0 avec DMA1 canal 4 ; le
+diviseur DFSDM est fixé à 50 dans la section utilisateur de
+`HAL_DFSDM_ChannelMspInit()`, avant activation de l'horloge par la HAL. Après
+régénération CubeMX, contrôler les affectations DMA avant de recompiler.
+
 Le fichier `X-CUBE-NFC6/Target/demo_polling.c` transmet les UID détectés à
 `nfc_events_card_seen()` pour déclencher la lecture. Après une régénération
 du code NFC, vérifier que cet appel est toujours présent avant de recompiler.
