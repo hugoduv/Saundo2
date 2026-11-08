@@ -9,7 +9,7 @@
 #define VOICE_SOCKET 1U
 #define MIC_DMA_SAMPLES 1024U
 #define MIC_RING_SAMPLES 16384U
-#define MIC_SEND_SAMPLES 512U
+#define MIC_SEND_SAMPLES 1200U
 #define VOICE_POLL_MS 200U
 #define VOICE_READY_TIMEOUT_MS 10000U
 
@@ -19,7 +19,7 @@ static DFSDM_Filter_HandleTypeDef mic_filter;
 static DMA_HandleTypeDef mic_dma;
 static int16_t mic_buffer[MIC_DMA_SAMPLES];
 static int16_t mic_ring[MIC_RING_SAMPLES];
-static int16_t send_buffer[MIC_SEND_SAMPLES];
+static uint8_t send_buffer[MIC_SEND_SAMPLES];
 static volatile uint32_t mic_read;
 static volatile uint32_t mic_write;
 static volatile uint8_t mic_overrun;
@@ -32,6 +32,8 @@ static uint8_t ready;
 static uint32_t started;
 static uint32_t last_poll;
 static uint32_t voice_session;
+static uint32_t max_send_ms;
+static uint32_t max_pending_samples;
 static char response[64];
 static uint32_t response_used;
 
@@ -151,16 +153,31 @@ static void voice_fail(const char *reason)
     voice_close();
 }
 
+void voice_stop_wifi_reset(void)
+{
+    socket_open = 0U;
+    voice_close();
+    attempted = 1U;
+    printf("[VOICE] Commandes desactivees pour cette carte apres erreur Wi-Fi.\r\n");
+}
+
+static void voice_wifi_fail(const char *reason)
+{
+    printf("[VOICE] %s\r\n", reason);
+    voice_stop_wifi_reset();
+    audio_stream_wifi_fault();
+}
+
 static int voice_start(void)
 {
     uint16_t port = wifi_probe_server_port();
-    if (!initialized || !wifi_probe_is_ready() || port == 65535U)
+    if (!initialized || !wifi_probe_is_ready() || port > 65533U)
     {
         printf("[VOICE] Microphone ou serveur indisponible.\r\n");
         return 0;
     }
     if (WIFI_OpenClientConnection(VOICE_SOCKET, WIFI_TCP_PROTOCOL, "VOICE",
-                                  wifi_probe_server_ip(), (uint16_t)(port + 1U), 0) != WIFI_STATUS_OK)
+                                  wifi_probe_server_ip(), (uint16_t)(port + 2U), 0) != WIFI_STATUS_OK)
     {
         printf("[VOICE] Connexion au serveur vocal impossible.\r\n");
         return 0;
@@ -168,6 +185,7 @@ static int voice_start(void)
     socket_open = 1U;
     mic_read = mic_write = 0U;
     mic_error = mic_overrun = 0U;
+    max_send_ms = max_pending_samples = 0U;
     ready = 0U;
     response_used = 0U;
     if (HAL_DFSDM_FilterRegularMsbStart_DMA(&mic_filter, mic_buffer, MIC_DMA_SAMPLES) != HAL_OK)
@@ -187,7 +205,7 @@ static int voice_receive(void)
     uint16_t received = 0U;
     if (WIFI_ReceiveData(VOICE_SOCKET, data, sizeof(data), &received, 20U) != WIFI_STATUS_OK)
     {
-        voice_fail("Connexion vocale interrompue.");
+        voice_wifi_fail("Connexion vocale interrompue.");
         return 0;
     }
     for (uint16_t i = 0; i < received; ++i)
@@ -234,6 +252,12 @@ static int voice_receive(void)
     return 1;
 }
 
+int voice_stop_needs_service(void)
+{
+    return socket_open && (mic_error || mic_overrun ||
+           (ready && mic_write - mic_read >= MIC_SEND_SAMPLES));
+}
+
 void voice_stop_process(void)
 {
     if (!audio_stream_active())
@@ -254,10 +278,24 @@ void voice_stop_process(void)
         if (!voice_start()) return;
     }
     if (!socket_open) return;
-    if (mic_error || mic_overrun)
+    if (mic_error)
     {
-        voice_fail(mic_overrun ? "Tampon microphone sature." : "Erreur DMA microphone.");
+        voice_fail("Erreur DMA microphone.");
         return;
+    }
+    if (mic_overrun)
+    {
+        uint32_t mask = __get_PRIMASK();
+        uint32_t pending;
+        uint32_t dropped;
+        __disable_irq();
+        pending = mic_write - mic_read;
+        dropped = pending > MIC_SEND_SAMPLES ? pending - MIC_SEND_SAMPLES : 0U;
+        mic_read += dropped;
+        mic_overrun = 0U;
+        if (!mask) __enable_irq();
+        printf("[VOICE] Tampon sature : %lu echantillons anciens ignores ; attente max=%lu, envoi max=%lu ms.\r\n",
+               (unsigned long)dropped, (unsigned long)max_pending_samples, (unsigned long)max_send_ms);
     }
     if (!ready && HAL_GetTick() - started > VOICE_READY_TIMEOUT_MS)
     {
@@ -279,13 +317,20 @@ void voice_stop_process(void)
     {
         uint16_t sent = 0U;
         uint32_t read = mic_read;
+        uint32_t pending = mic_write - read;
+        uint32_t send_started;
+        WIFI_Status_t status;
+        if (pending > max_pending_samples) max_pending_samples = pending;
         __DMB();
         for (uint32_t i = 0; i < MIC_SEND_SAMPLES; ++i)
-            send_buffer[i] = mic_ring[(read + i) & (MIC_RING_SAMPLES - 1U)];
+            send_buffer[i] = (uint8_t)(((int32_t)mic_ring[(read + i) & (MIC_RING_SAMPLES - 1U)] + 32768) >> 8);
         mic_read = read + MIC_SEND_SAMPLES;
-        if (WIFI_SendData(VOICE_SOCKET, (const uint8_t *)send_buffer,
-                          sizeof(send_buffer), &sent, 1000U) != WIFI_STATUS_OK ||
-            sent != sizeof(send_buffer))
-            voice_fail("Envoi audio au serveur vocal impossible.");
+        send_started = HAL_GetTick();
+        status = WIFI_SendData(VOICE_SOCKET, (const uint8_t *)send_buffer,
+                               sizeof(send_buffer), &sent, 1000U);
+        if (HAL_GetTick() - send_started > max_send_ms)
+            max_send_ms = HAL_GetTick() - send_started;
+        if (status != WIFI_STATUS_OK || sent != sizeof(send_buffer))
+            voice_wifi_fail("Envoi audio au serveur vocal impossible.");
     }
 }

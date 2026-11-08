@@ -9,19 +9,28 @@ des réponses HTTP compatibles avec une lecture progressive.
 - FFmpeg accessible dans le `PATH` du serveur, ou configuré avec `FFMPEG_PATH`
 - Les fichiers audio indiqués dans `data/tracks.json`, placés dans `audio/`
 
-Le serveur convertit automatiquement les fichiers en WAV PCM mono 16 bits à
-16 kHz lors de la première requête audio. La première lecture attend la fin
-de la conversion ; les suivantes utilisent le fichier converti en cache.
-Le fichier original n'est pas modifié.
+Le serveur convertit automatiquement les fichiers à la première requête.
+La carte utilise un MP3 mono 32 kHz à 64 kbit/s ; les routes WAV existantes
+utilisent toujours du PCM mono 16 bits à 16 kHz. Les deux formats ont des
+caches distincts. La première lecture attend la fin de la conversion ;
+les suivantes utilisent le cache. Le fichier original n'est pas modifié.
+FFmpeg doit inclure l'encodeur `libmp3lame`.
 
 ## Commandes vocales expérimentales
 
-Sur Windows, le serveur ouvre aussi un port TCP dédié à la reconnaissance :
-le port HTTP plus un (par défaut **8081**). Le moteur de reconnaissance vocal
+Sur Windows, le serveur ouvre deux ports TCP dédiés à la reconnaissance :
+le port HTTP plus deux (par défaut **8082**) pour le firmware actuel et le port
+HTTP plus un (**8081**) pour les anciens firmwares. Le nouveau protocole
+transmet du PCM mono non signé 8 bits à 16 kHz ; le serveur le convertit en
+PCM signé 16 bits pour le moteur. Cela réduit le débit du microphone de moitié,
+au prix d'une résolution plus faible. Le moteur de reconnaissance vocal
 français Windows doit être installé. La carte envoie le signal de son microphone
 tant que la session du tag est active, y compris pendant une pause et après la
 fin du morceau. Le serveur recherche localement « pause », « play » et
 « recommence » ; il ne sauvegarde pas les échantillons.
+La reconnaissance analyse des fenêtres de 1,5 seconde, décalées de
+0,5 seconde. La rapidité et la fiabilité de cette configuration restent à
+vérifier avec le microphone et le haut-parleur réels.
 
 - **« pause »** suspend la lecture sans perdre la position.
 - **« play »** reprend à la position de la pause.
@@ -33,16 +42,22 @@ Le microphone et la reconnaissance restent à tester sur la carte réelle. Le so
 du haut-parleur peut masquer la voix ou déclencher la commande par erreur.
 L'audio circule en clair sur le réseau local et le port vocal n'est pas
 authentifié : utiliser uniquement un réseau de confiance, ne pas exposer ces
-ports sur Internet. Si nécessaire, autoriser le port TCP 8081 dans le pare-feu
-uniquement sur le réseau approprié.
+ports sur Internet. Si nécessaire, autoriser le port TCP 8082 dans le pare-feu
+uniquement sur le réseau approprié ; 8081 n'est utile qu'aux anciens firmwares.
 
 La lecture audio reste utilisable si la reconnaissance est indisponible. Les
 erreurs apparaissent dans le terminal du serveur et sur le port série avec le
-préfixe `[VOICE]`. Si le port HTTP est modifié, ouvrir le port suivant.
-Une seule connexion vocale est acceptée à la fois. Après une coupure ou un
+préfixe `[VOICE]`. Si le port HTTP est modifié, ouvrir le port situé deux
+numéros plus loin pour le firmware actuel. Une seule connexion vocale est
+acceptée à la fois, tous ports confondus. Après une coupure ou un
 redémarrage de la carte, le serveur libère une connexion inactive au bout de
 15 secondes. Si la carte affiche `ERROR busy`, attendre ce délai puis retirer
 et reposer le tag pour réessayer.
+
+En cas de saturation du tampon microphone, la carte signale qu'elle écarte
+les échantillons anciens avant de continuer. Une commande prononcée pendant
+une perte peut être manquée : si les messages se répètent, conserver les
+diagnostics et vérifier la qualité de la reconnaissance sur la carte.
 
 ## Démarrage
 
@@ -119,6 +134,22 @@ GET http://localhost:8080/api/stream/04301DCA936680
 Cette route renvoie 404 si l'UID est inconnu, désactivé ou si son fichier
 audio manque. Elle accepte également `Range`. Un en-tête WAV ne fait pas
 nécessairement 44 octets : le lecteur doit rechercher le bloc `data`.
+
+La carte utilise désormais la route suivante :
+
+```text
+GET http://localhost:8080/api/stream-mp3/04301DCA936680
+```
+
+Elle renvoie `audio/mpeg`, avec un `Content-Length` et des trames MP3 MPEG-1
+Layer III mono 32 kHz à 64 kbit/s, sans étiquette ID3 ni en-tête Xing. Elle
+accepte aussi `Range` et conserve les mêmes erreurs 404. La première requête
+attend la conversion complète ; elle peut prendre du temps.
+Le serveur fournit également un `ETag` stable pour le fichier converti et
+respecte `If-Range` : après reconnexion Wi-Fi, la carte peut demander les
+octets manquants sans mélanger deux versions du fichier. Redémarrer une fois
+le serveur pour charger cette modification ; les reconnexions ultérieures
+ne nécessitent pas de le redémarrer.
 
 ## Ajouter une musique
 

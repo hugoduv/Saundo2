@@ -86,6 +86,17 @@ static void MX_TIM6_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+static void service_audio(void)
+{
+  uint32_t started = HAL_GetTick();
+  if (voice_stop_needs_service() && !audio_stream_refill_urgent()) return;
+  do
+  {
+    audio_stream_process();
+  } while (audio_stream_needs_refill() && !voice_stop_needs_service() &&
+           HAL_GetTick() - started < 200U);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -96,7 +107,8 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-
+  uint32_t nfc_started;
+  uint32_t voice_started;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -131,6 +143,7 @@ int main(void)
   HAL_GPIO_WritePin(GPIOE, GPIO_PIN_2, GPIO_PIN_SET);
   wifi_probe_start();
   voice_stop_init();
+  nfc_started = HAL_GetTick();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -141,9 +154,18 @@ int main(void)
 
   MX_X_CUBE_NFC6_Process();
     /* USER CODE BEGIN 3 */
+  audio_stream_note_nfc_time(HAL_GetTick() - nfc_started);
   nfc_events_poll();
-  audio_stream_process();
-  voice_stop_process();
+  service_audio();
+  for (uint32_t i = 0; i < 4U; ++i)
+  {
+    voice_started = HAL_GetTick();
+    voice_stop_process();
+    audio_stream_note_voice_time(HAL_GetTick() - voice_started);
+    service_audio();
+    if (!voice_stop_needs_service()) break;
+  }
+  nfc_started = HAL_GetTick();
   }
   /* USER CODE END 3 */
 }
@@ -430,7 +452,7 @@ static void MX_TIM6_Init(void)
   htim6.Instance = TIM6;
   htim6.Init.Prescaler = 0;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 4999;
+  htim6.Init.Period = 2499;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {

@@ -106,3 +106,50 @@ test("rejects the removed stop command", { timeout: 5000 }, async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+  test("converts fragmented unsigned 8-bit microphone samples to signed 16-bit PCM", { timeout: 5000 }, async () => {
+    const server = startVoiceServer("127.0.0.1", 0, {
+      encoding: "u8",
+      createRecognizer: () => spawn(process.execPath, ["-e", `
+        process.stdout.write("READY\\n");
+        let data = Buffer.alloc(0);
+        process.stdin.on("data", chunk => {
+          data = Buffer.concat([data, chunk]);
+          if (data.length >= 8) {
+            process.stdout.write(data.subarray(0, 8).toString("hex") === "008000ff0000007f" ? "PAUSE\\n" : "BAD\\n");
+          }
+        });
+      `], { stdio: ["pipe", "pipe", "pipe"] })
+    });
+    await once(server, "listening");
+    const socket = openClient(server);
+    try {
+      await readUntil(socket, "READY\n");
+      const response = readUntil(socket, "PAUSE\n");
+      socket.write(Buffer.from([0, 127]));
+      socket.write(Buffer.from([128, 255]));
+      assert.match(await response, /PAUSE/);
+    } finally {
+      socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  test("legacy and compressed ports share microphone exclusivity", { timeout: 5000 }, async () => {
+    const admission = { active: false };
+    const legacy = startVoiceServer("127.0.0.1", 0, { admission, createRecognizer: fakeRecognizer });
+    const compressed = startVoiceServer("127.0.0.1", 0, { admission, encoding: "u8", createRecognizer: fakeRecognizer });
+    await Promise.all([once(legacy, "listening"), once(compressed, "listening")]);
+    const first = openClient(legacy);
+    let second;
+    try {
+      await readUntil(first, "READY\n");
+      second = openClient(compressed);
+      assert.match(await readUntil(second, "ERROR busy\n"), /ERROR busy/);
+    } finally {
+      first.destroy();
+      if (second) second.destroy();
+      await Promise.all([new Promise((resolve) => legacy.close(resolve)),
+        new Promise((resolve) => compressed.close(resolve))]);
+    }
+  });

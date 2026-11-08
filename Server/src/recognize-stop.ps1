@@ -18,8 +18,8 @@ try {
     [Console]::Out.WriteLine('READY')
     [Console]::Out.Flush()
     $inputStream = [Console]::OpenStandardInput()
-    $window = New-Object byte[] 64000
-    $hasPrevious = $false
+    $window = New-Object byte[] 48000
+    $chunks = 0
     $windowStart = 0.0
     $lastResultEnd = -1.0
     while ($true) {
@@ -29,7 +29,8 @@ try {
             if ($read -eq 0) { exit 0 }
             $offset += $read
         }
-        if ($hasPrevious) {
+        $chunks++
+        if ($chunks -ge 3) {
             $audio = New-Object System.IO.MemoryStream(,$window)
             $recognizer.SetInputToAudioStream($audio, $format)
             $result = $recognizer.Recognize()
@@ -43,9 +44,8 @@ try {
             }
             $audio.Dispose()
         }
-        [Array]::Copy($window, 32000, $window, 0, 32000)
-        if ($hasPrevious) { $windowStart += 1.0 }
-        $hasPrevious = $true
+        [Array]::Copy($window, 16000, $window, 0, 32000)
+        if ($chunks -ge 3) { $windowStart += 0.5 }
     }
 } catch {
     [Console]::Error.WriteLine($_.ToString())
