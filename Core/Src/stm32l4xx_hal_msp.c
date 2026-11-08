@@ -110,8 +110,8 @@ void HAL_DAC_MspInit(DAC_HandleTypeDef* hdac)
     hdma_dac_ch1.Init.Direction = DMA_MEMORY_TO_PERIPH;
     hdma_dac_ch1.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_dac_ch1.Init.MemInc = DMA_MINC_ENABLE;
-    hdma_dac_ch1.Init.PeriphDataAlignment = DMA_PDATAALIGN_BYTE;
-    hdma_dac_ch1.Init.MemDataAlignment = DMA_MDATAALIGN_BYTE;
+    hdma_dac_ch1.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+    hdma_dac_ch1.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
     hdma_dac_ch1.Init.Mode = DMA_CIRCULAR;
     hdma_dac_ch1.Init.Priority = DMA_PRIORITY_LOW;
     if (HAL_DMA_Init(&hdma_dac_ch1) != HAL_OK)
@@ -186,6 +186,11 @@ void HAL_DFSDM_ChannelMspInit(DFSDM_Channel_HandleTypeDef* hdfsdm_channel)
   if(DFSDM1_Init == 0)
   {
     /* USER CODE BEGIN DFSDM1_MspInit 0 */
+    /* Override the generated divider before HAL enables the microphone clock. */
+    if (hdfsdm_channel->Instance == DFSDM1_Channel1)
+    {
+      hdfsdm_channel->Init.OutputClock.Divider = 50U;
+    }
 
     /* USER CODE END DFSDM1_MspInit 0 */
 

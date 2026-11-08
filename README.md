@@ -14,17 +14,59 @@ its audio output. Removing the tag stops playback.
 
 ## Audio and streaming
 
-- The server converts audio files to **16 kHz, 16-bit, mono PCM WAV** and
-  caches the result.
-- When a tag is detected, the board requests `/api/stream/<UID>` over HTTP.
-  It progressively receives the WAV, converts it to 8-bit samples, and fills
-  a **32,768-sample** circular buffer in RAM. Playback starts after approximately
-  one second of prebuffering, or when the entire file has arrived for shorter sounds.
-- DAC1 channel 1: 8-bit output triggered by **TIM6 TRGO at 16 kHz**.
-  TIM6 uses a prescaler of 0 and a period of 4999. Transfers use **DMA1
-  channel 3 in circular mode**, with a 1024-byte DAC buffer.
-- A network error or empty buffer stops playback. Streaming operation and
-  stability still need to be verified on the board.
+- For the board, the server converts files to **32 kHz mono MP3 at 64 kbit/s**
+  and caches them. The original WAV API remains available at 16 kHz/16-bit.
+- The board requests `/api/stream-mp3/<UID>`, decodes MP3 frames with
+  [minimp3](https://github.com/lieff/minimp3) (CC0, revision
+  `ea99364f61c14656440e8d77e9c233ccf3124633`) and converts PCM samples to
+  12-bit DAC values. The MP3 stream is about a quarter of the previous
+  256 kbit/s PCM payload, excluding protocol overhead.
+- The circular buffer holds **16384 samples** (512 ms), with **12288 samples**
+  (384 ms) prebuffered. It resides in RAM2; the linker reserves 24 KiB of
+  main RAM for the stack. The MP3 decoder alone uses about 16 KiB of stack
+  in the Debug build.
+- DAC1 channel 1: 12-bit output triggered by **TIM6 TRGO at 32 kHz**.
+  TIM6 uses a prescaler of 0 and a period of 2499. DMA1 channel 3 uses a
+  circular buffer of 512 halfword samples.
+- A network error stops playback. If the decoded buffer runs out, the board
+  outputs silence, logs a diagnostic and resumes once it has rebuffered.
+  Frequent rebuffering means the system cannot sustain playback; the log
+  reports maximum decode and receive durations to help diagnose the cause.
+  Streaming operation and stability still need to be verified on the board.
+- A voice transport failure disables voice for the current tag and triggers a
+  Wi-Fi reconnect. The server's `ETag` and HTTP range support allow the MP3
+  stream to resume from the received byte offset, provided the file is unchanged.
+  Silence or a pause is still possible while the shared Wi-Fi module reconnects.
+  Replace the tag to enable voice again.
+- While a tag's session is active, including during pause and after playback
+  finishes, the board sends microphone audio to the local server for offline
+  recognition of three commands:
+  - **« pause »** pauses playback.
+  - **« play »** resumes from the paused position.
+  - **« recommence »** restarts the current track from the beginning.
+
+  Removing the tag stops playback and microphone capture. There is no "stop"
+  voice command. This experimental feature requires Windows and a French
+  Windows speech recognizer on the server; it examines 1.5-second windows
+  every 0.5 seconds. Verify it on the board, especially
+  with sound playing through the speaker. Microphone audio crosses the local
+  network unencrypted and is not saved by this software. Do not expose the
+  server to an untrusted network.
+
+  The current firmware sends 16 kHz unsigned 8-bit microphone samples to the
+  server on HTTP port + 2 (8082 by default), halving the previous microphone
+  payload. The server expands them to 16-bit PCM for recognition. The legacy
+  16-bit protocol remains available on HTTP port + 1 (8081). Restart the
+  server after updating; allow the new port on the trusted local network.
+  If the microphone buffer overflows, old audio is discarded and reported;
+  commands spoken during a loss may not be recognized.
+
+The firmware build and host-side decoding tests do not establish that the
+STM32 can decode fast enough while NFC and microphone capture are active.
+Test continuous playback, card removal, pause, play, and restart on hardware.
+The NFC removal timeout remains two seconds to avoid untested false removals.
+MP3 reduces downstream bandwidth but does not by itself fix the previously
+observed Wi-Fi SPI/DRDY timeouts.
 
 ## Server and configuration
 

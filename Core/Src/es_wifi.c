@@ -773,7 +773,7 @@ static ES_WIFI_Status_t AT_RequestSendData(ES_WIFIObject_t *Obj, uint8_t* cmd,
   int16_t send_len = 0;
   int16_t recv_len = 0;
   uint16_t cmd_len = 0;
-  uint16_t n;
+  int16_t n;
 
   LOCK_WIFI();
 
@@ -801,15 +801,18 @@ static ES_WIFI_Status_t AT_RequestSendData(ES_WIFIObject_t *Obj, uint8_t* cmd,
         }
         else if(strstr((char *)pdata, AT_ERROR_STRING))
         {
+          DEBUG("Voice/data send: module reports a socket error.\n");
           UNLOCK_WIFI();
           return ES_WIFI_STATUS_UNEXPECTED_CLOSED_SOCKET;
         }
         else
         {
+          DEBUG("Data send: unexpected module response (length=%d).\n", recv_len);
           UNLOCK_WIFI();
           return ES_WIFI_STATUS_ERROR;
         }
       }
+      DEBUG("Data send: response read failed (code=%d).\n", recv_len);
       UNLOCK_WIFI();
       if (recv_len == ES_WIFI_ERROR_STUFFING_FOREVER)
       {
@@ -819,9 +822,13 @@ static ES_WIFI_Status_t AT_RequestSendData(ES_WIFIObject_t *Obj, uint8_t* cmd,
     }
     else
     {
+      DEBUG("Data send: SPI payload failed (result=%d, expected=%u).\n",
+            send_len, (unsigned)len);
       return ES_WIFI_STATUS_ERROR;
     }
   }
+  DEBUG("Data send: SPI command failed (result=%d, expected=%u).\n",
+        n, (unsigned)cmd_len);
  }
   return ES_WIFI_STATUS_IO_ERROR;
 }
@@ -2308,7 +2315,8 @@ ES_WIFI_Status_t ES_WIFI_SendData(ES_WIFIObject_t *Obj, uint8_t Socket,
       }
       else
       {
-        DEBUG("Send Data command failed\n");
+        DEBUG("Send Data command failed (socket=%u, status=%d)\n",
+              (unsigned)Socket, (int)ret);
       }
     }
     else
