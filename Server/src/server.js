@@ -60,13 +60,20 @@ function audioPathFor(fileName) {
   return filePath;
 }
 
-function runFfmpeg(source, destination) {
+const formats = {
+  wav: { extension: "wav", contentType: "audio/wav",
+    arguments: ["-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", "-f", "wav"] },
+  mp3: { extension: "mp3", contentType: "audio/mpeg",
+    arguments: ["-ar", "32000", "-ac", "1", "-c:a", "libmp3lame", "-b:a", "64k",
+      "-write_xing", "0", "-id3v2_version", "0", "-write_id3v1", "0", "-f", "mp3"] }
+};
+
+function runFfmpeg(source, destination, format) {
   return new Promise((resolveConversion, rejectConversion) => {
     const process = spawn(ffmpeg, [
       "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
       "-i", source, "-map", "0:a:0", "-vn",
-      "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-      "-f", "wav", destination
+      ...format.arguments, destination
     ], { stdio: ["ignore", "ignore", "pipe"] });
     let errors = "";
     process.stderr.on("data", (chunk) => { errors += chunk.toString(); });
@@ -81,11 +88,12 @@ function runFfmpeg(source, destination) {
   });
 }
 
-async function convertedAudioPath(source, sourceStats) {
+async function convertedAudioPath(source, sourceStats, formatName) {
+  const format = formats[formatName];
   const key = createHash("sha256")
-    .update(JSON.stringify([source, sourceStats.size, sourceStats.mtimeMs, sourceStats.ctimeMs]))
+    .update(JSON.stringify([formatName, format.arguments, source, sourceStats.size, sourceStats.mtimeMs, sourceStats.ctimeMs]))
     .digest("hex");
-  const output = join(cacheDirectory, `${key}.wav`);
+  const output = join(cacheDirectory, `${key}.${format.extension}`);
   if (!conversions.has(key)) {
     const conversion = (async () => {
       await fs.mkdir(cacheDirectory, { recursive: true });
@@ -97,7 +105,7 @@ async function convertedAudioPath(source, sourceStats) {
       }
       const temporary = join(cacheDirectory, `${key}-${randomUUID()}.tmp`);
       try {
-        await runFfmpeg(source, temporary);
+        await runFfmpeg(source, temporary, format);
         await fs.rename(temporary, output);
       } finally {
         await fs.rm(temporary, { force: true });
@@ -113,7 +121,7 @@ async function convertedAudioPath(source, sourceStats) {
   return conversions.get(key);
 }
 
-async function serveAudio(request, response, fileName) {
+async function serveAudio(request, response, fileName, formatName = "wav") {
   const sourcePath = audioPathFor(fileName);
   if (!sourcePath) {
     sendError(response, 400, "Invalid audio file");
@@ -136,7 +144,7 @@ async function serveAudio(request, response, fileName) {
     return;
   }
 
-  const filePath = await convertedAudioPath(sourcePath, fileStats);
+  const filePath = await convertedAudioPath(sourcePath, fileStats, formatName);
   fileStats = await fs.stat(filePath);
   const range = request.headers.range;
   let start = 0;
@@ -177,7 +185,7 @@ async function serveAudio(request, response, fileName) {
   const headers = {
     "Accept-Ranges": "bytes",
     "Content-Length": fileStats.size === 0 ? 0 : end - start + 1,
-    "Content-Type": "audio/wav",
+    "Content-Type": formats[formatName].contentType,
     "Access-Control-Allow-Origin": "*"
   };
   if (statusCode === 206) {
@@ -219,7 +227,7 @@ async function handleRequest(request, response) {
   }
 
   if (pathParts.length === 3 && pathParts[0] === "api" &&
-      (pathParts[1] === "tracks" || pathParts[1] === "stream") &&
+      (pathParts[1] === "tracks" || pathParts[1] === "stream" || pathParts[1] === "stream-mp3") &&
       request.method === "GET") {
     const uid = normalizeUid(pathParts[2] ?? "");
     if (!/^[0-9A-F]{8,32}$/.test(uid)) {
@@ -236,8 +244,8 @@ async function handleRequest(request, response) {
       return;
     }
 
-    if (pathParts[1] === "stream") {
-      await serveAudio(request, response, track.file);
+    if (pathParts[1] === "stream" || pathParts[1] === "stream-mp3") {
+      await serveAudio(request, response, track.file, pathParts[1] === "stream-mp3" ? "mp3" : "wav");
       return;
     }
 
@@ -281,7 +289,10 @@ server.listen(port, host, () => {
 });
 
 if (process.platform === "win32" && port < 65535) {
-  startVoiceServer(host, port + 1);
+  const admission = { active: false };
+  startVoiceServer(host, port + 1, { admission });
+  if (port < 65534) startVoiceServer(host, port + 2, { encoding: "u8", admission });
+  else console.error("[VOICE] Port vocal U8 indisponible : port HTTP trop eleve.");
 } else {
   console.error("[VOICE] Reconnaissance indisponible : Windows et un port libre sont necessaires.");
 }

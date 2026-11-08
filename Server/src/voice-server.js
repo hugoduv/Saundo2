@@ -1,20 +1,21 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
+import { Transform } from "node:stream";
 
 const recognizerScript = fileURLToPath(new URL("./recognize-stop.ps1", import.meta.url));
 
-export function startVoiceServer(host, port, { idleTimeoutMs = 15000, createRecognizer = () => spawn("powershell.exe", [
+export function startVoiceServer(host, port, { idleTimeoutMs = 15000, encoding = "s16le", admission = { active: false }, createRecognizer = () => spawn("powershell.exe", [
   "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
   "-File", recognizerScript
 ], { stdio: ["pipe", "pipe", "pipe"] }) } = {}) {
-  let active = false;
+  if (encoding !== "s16le" && encoding !== "u8") throw new Error(`Unsupported voice encoding: ${encoding}`);
   const server = createServer((socket) => {
-    if (active) {
+    if (admission.active) {
       socket.end("ERROR busy\n");
       return;
     }
-    active = true;
+    admission.active = true;
     const recognizer = createRecognizer();
     let output = "";
     socket.setNoDelay(true);
@@ -23,7 +24,20 @@ export function startVoiceServer(host, port, { idleTimeoutMs = 15000, createReco
       console.error("[VOICE] Connexion inactive : liberation du microphone.");
       socket.destroy();
     });
-    socket.pipe(recognizer.stdin);
+    const converter = encoding === "u8" ? new Transform({
+      transform(chunk, _encoding, callback) {
+        const pcm = Buffer.allocUnsafe(chunk.length * 2);
+        for (let i = 0; i < chunk.length; i++) pcm.writeInt16LE((chunk[i] - 128) * 256, i * 2);
+        callback(null, pcm);
+      }
+    }) : null;
+    if (converter) {
+      converter.on("error", (error) => {
+        console.error("[VOICE] Conversion audio:", error.message);
+        socket.destroy(error);
+      });
+      socket.pipe(converter).pipe(recognizer.stdin);
+    } else socket.pipe(recognizer.stdin);
     socket.on("error", (error) => console.error("[VOICE] Socket:", error.message));
     recognizer.stdin.on("error", (error) => {
       if (!socket.destroyed && error.code !== "EPIPE" &&
@@ -64,7 +78,8 @@ export function startVoiceServer(host, port, { idleTimeoutMs = 15000, createReco
       }
     });
     socket.on("close", () => {
-      active = false;
+      admission.active = false;
+      if (converter) converter.destroy();
       recognizer.kill();
     });
   });

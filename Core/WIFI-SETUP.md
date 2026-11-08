@@ -1,7 +1,7 @@
 # Test Wi-Fi et serveur
 
 Au démarrage, le firmware teste la connexion Wi-Fi et l'endpoint `/health`.
-Lorsqu'un tag est détecté, il demande son WAV au serveur et le lit pendant
+Lorsqu'un tag est détecté, il demande son MP3 au serveur et le lit pendant
 la réception. Le serveur doit rester lancé pendant la lecture.
 
 ## Préparation
@@ -35,42 +35,72 @@ serveur, le pare-feu et l'isolation des clients du téléphone.
 
 ## Lecture en streaming
 
-1. Redémarrer le serveur pour disposer de la route `/api/stream/<UID>`.
+1. Redémarrer le serveur pour disposer de la route `/api/stream-mp3/<UID>`.
    FFmpeg doit être installé et configuré comme indiqué dans `Server/README.md`.
 2. Après `[WIFI] Serveur /health OK.`, poser un tag associé à un fichier dans
    `Server/data/tracks.json`. Attendre `[AUDIO] Lecture en cours.`. La première
    demande peut prendre plus de temps car le serveur convertit le fichier.
 3. Retirer le tag : la lecture s'arrête après le délai de détection de retrait
    (environ deux secondes lorsque la boucle NFC est disponible). Un tag inconnu,
-   une erreur réseau, un WAV non pris en charge ou un buffer vide arrête la
-   lecture et produit un message `[AUDIO]` sur le port série.
+   une erreur réseau ou un MP3 non pris en charge arrête la lecture et produit
+   un message `[AUDIO]` sur le port série. Si le buffer se vide, la carte
+   insère du silence, recharge le tampon et reprend automatiquement.
 
-La carte lit le WAV PCM mono 16 bits à 16 kHz, convertit les échantillons pour
-le DAC 8 bits et utilise un tampon de 32768 échantillons (environ deux secondes)
-avec préchargement d'une seconde. Les en-têtes HTTP et les blocs WAV sont lus
-progressivement ; il ne faut pas présumer un en-tête WAV de 44 octets. Le
-pilote Wi-Fi utilise des opérations bloquantes avec délais : la réactivité et
-le débit doivent être vérifiés sur la carte. En cas de perte réseau, retirer
+La carte décode le MP3 mono 32 kHz à 64 kbit/s en PCM et alimente le DAC
+12 bits à 32 kHz. Le tampon contient 16384 échantillons (512 ms), avec
+12288 échantillons (384 ms) de préchargement ; les trames peuvent arriver en
+plusieurs blocs réseau. Le pilote Wi-Fi utilise des opérations bloquantes
+avec délais : la réactivité, la vitesse de décodage et le débit doivent être
+vérifiés sur la carte. Le délai NFC de deux secondes reste inchangé pour éviter
+les retraits intempestifs. En cas de perte réseau, retirer
 le tag et redémarrer la carte après rétablissement du Wi-Fi. HTTP est prévu
 pour ce prototype local, pas pour un serveur exposé sur Internet.
 
+La boucle alimente l'audio et le microphone alternativement. Elle traite jusqu'à
+quatre blocs microphone par cycle et privilégie l'audio quand il reste moins
+de 128 ms dans son tampon. Sans microphone en attente, elle consacre jusqu'à
+200 ms au remplissage audio ; un appel Wi-Fi bloquant peut dépasser cette
+limite. Les temps de réponse restent à vérifier sur la carte.
+
 La commande vocale expérimentale utilise le microphone intégré et le serveur
-Windows local. Autoriser aussi le port TCP suivant le port HTTP (8081 par
-défaut), puis vérifier `[VOICE] Ecoute active.` avant de dire « pause »,
+Windows local. Redémarrer le serveur et autoriser aussi le port TCP HTTP + 2
+(8082 par défaut), puis vérifier `[VOICE] Ecoute active.` avant de dire « pause »,
 « play » ou « recommence ». « play » reprend à la position de pause ;
 « recommence » relance au début. Retirer le tag arrête la lecture et l'écoute.
 L'audio du microphone est transmis en clair sur le réseau local pendant la
 session, y compris en pause et après la fin. Il n'est pas sauvegardé par le serveur.
 Le fonctionnement et la fiabilité en présence du haut-parleur doivent être
 vérifiés sur la carte ; voir `Server/README.md`.
+Les fenêtres vocales passent de deux secondes avec un pas d'une seconde à
+1,5 seconde avec un pas de 0,5 seconde ; vérifier la reconnaissance et les
+éventuelles répétitions. La baisse du débit audio ne garantit pas la disparition
+des erreurs SPI/DRDY du module Wi-Fi.
+Le microphone envoie des échantillons 8 bits à 16 kHz pour réduire le trafic ;
+le serveur les reconvertit en 16 bits pour la reconnaissance. Si son tampon
+sature malgré tout, les anciens échantillons sont écartés avec un message
+`[VOICE]` : une commande peut alors être perdue.
+
+Si `[AUDIO] Buffer vide : recharge` se répète, conserver le message complet :
+il indique le nombre de rechargements, les octets MP3 en attente, et les
+durées maximales de décodage d'une trame, de réception Wi-Fi, de traitement
+NFC et vocal, et l'intervalle maximal entre deux passages du traitement audio.
+Une trame
+représente 36 ms de son ; un décodage régulièrement supérieur à ce délai ne
+peut pas suivre le rythme, même avec un tampon plus grand. Une valeur maximale
+isolée ne suffit toutefois pas à établir la cause. Les opérations NFC et
+vocales bloquantes peuvent aussi retarder l'alimentation du tampon.
 Le microphone utilise DFSDM1 canal 1 et filtre 0 avec DMA1 canal 4 ; le
 diviseur DFSDM est fixé à 50 dans la section utilisateur de
 `HAL_DFSDM_ChannelMspInit()`, avant activation de l'horloge par la HAL. Après
 régénération CubeMX, contrôler les affectations DMA avant de recompiler.
 
 Le fichier `X-CUBE-NFC6/Target/demo_polling.c` transmet les UID détectés à
-`nfc_events_card_seen()` pour déclencher la lecture. Après une régénération
-du code NFC, vérifier que cet appel est toujours présent avant de recompiler.
+`nfc_events_card_seen()` pour déclencher la lecture, puis utilise
+`RFAL_NFC_DEACTIVATE_DISCOVERY` pour laisser le worker RFAL désactiver et
+relancer la découverte sans attendre dans la boucle principale. Le mode
+`RFAL_NFC_DEACTIVATE_IDLE` est bloquant et peut attendre jusqu'à la fin du
+cycle de découverte, ce qui vide le tampon audio. Après une régénération du
+code NFC, vérifier que ces deux adaptations sont toujours présentes.
 
 Si la connexion échoue, le firmware indique si l'échec concerne la connexion
 au point d'accès ou la lecture des paramètres réseau, puis recherche le SSID

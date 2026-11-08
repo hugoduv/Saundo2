@@ -386,8 +386,13 @@ void demoCycle( void )
                     nfcDevice->type == RFAL_NFC_LISTEN_TYPE_ST25TB)
                 {
                     nfc_events_card_seen(nfcDevice->nfcid, nfcDevice->nfcidLen);
-                    rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_IDLE);
-                    state = DEMO_ST_START_DISCOVERY;
+                    /* IDLE waits synchronously for the discovery timer. Let the
+                     * RFAL worker deactivate and restart discovery instead. */
+                    if (rfalNfcDeactivate(RFAL_NFC_DEACTIVATE_DISCOVERY) != RFAL_ERR_NONE)
+                    {
+                        platformLog("NFC: asynchronous deactivation failed; restarting discovery\r\n");
+                        state = DEMO_ST_START_DISCOVERY;
+                    }
                     break;
                 }
 
