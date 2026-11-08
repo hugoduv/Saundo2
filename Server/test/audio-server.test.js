@@ -79,6 +79,17 @@ test("MP3 route preserves WAV API and produces complete 32 kHz mono frames", {
     const range = await fetch(`${root}/api/stream-mp3/12345678`, { headers: { Range: "bytes=10-29" } });
     assert.equal(range.status, 206);
     assert.deepEqual(Buffer.from(await range.arrayBuffer()), mp3.subarray(10, 30));
+    const etag = mp3Response.headers.get("etag");
+    assert.ok(etag);
+    const resumed = await fetch(`${root}/api/stream-mp3/12345678`,
+      { headers: { Range: "bytes=10-", "If-Range": etag } });
+    assert.equal(resumed.status, 206);
+    assert.equal(resumed.headers.get("etag"), etag);
+    assert.deepEqual(Buffer.from(await resumed.arrayBuffer()), mp3.subarray(10));
+    const changed = await fetch(`${root}/api/stream-mp3/12345678`,
+      { headers: { Range: "bytes=10-", "If-Range": '"different"' } });
+    assert.equal(changed.status, 200);
+    assert.deepEqual(Buffer.from(await changed.arrayBuffer()), mp3);
     assert.equal((await fetch(`${root}/api/stream-mp3/87654321`)).status, 404);
     const cache = await fs.readdir(join(dir, "cache"));
     assert.equal(cache.filter((name) => name.endsWith(".mp3")).length, 1);

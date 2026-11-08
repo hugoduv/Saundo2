@@ -33,6 +33,11 @@ its audio output. Removing the tag stops playback.
   Frequent rebuffering means the system cannot sustain playback; the log
   reports maximum decode and receive durations to help diagnose the cause.
   Streaming operation and stability still need to be verified on the board.
+- A voice transport failure disables voice for the current tag and triggers a
+  Wi-Fi reconnect. The server's `ETag` and HTTP range support allow the MP3
+  stream to resume from the received byte offset, provided the file is unchanged.
+  Silence or a pause is still possible while the shared Wi-Fi module reconnects.
+  Replace the tag to enable voice again.
 - While a tag's session is active, including during pause and after playback
   finishes, the board sends microphone audio to the local server for offline
   recognition of three commands:

@@ -134,6 +134,7 @@ void wifi_probe_start(void)
 #if SAUNDO_WIFI_CONFIGURED
     uint8_t address[4];
 
+    wifi_ready = 0;
     if (strlen(SAUNDO_WIFI_SSID) == 0U || strlen(SAUNDO_WIFI_SSID) > 32U ||
         strlen(SAUNDO_WIFI_PASSWORD) < 8U || strlen(SAUNDO_WIFI_PASSWORD) > 63U ||
         strchr(SAUNDO_WIFI_SSID, '\r') != NULL || strchr(SAUNDO_WIFI_SSID, '\n') != NULL ||
@@ -183,6 +184,26 @@ void wifi_probe_start(void)
 
 #else
     printf("[WIFI] Configuration absente : voir wifi_settings.example.h.\r\n");
+#endif
+}
+
+int wifi_probe_recover(void)
+{
+#if SAUNDO_WIFI_CONFIGURED
+    wifi_ready = 0;
+    printf("[WIFI] Reinitialisation et reconnexion du module...\r\n");
+    if (WIFI_Init() != WIFI_STATUS_OK ||
+        WIFI_Connect(SAUNDO_WIFI_SSID, SAUNDO_WIFI_PASSWORD, WIFI_ECN_WPA2_PSK) != WIFI_STATUS_OK ||
+        WIFI_SetCommandTimeout(3000U) != WIFI_STATUS_OK)
+    {
+        printf("[WIFI] Reconnexion impossible.\r\n");
+        return 0;
+    }
+    wifi_ready = 1;
+    printf("[WIFI] Reconnexion reussie.\r\n");
+    return 1;
+#else
+    return 0;
 #endif
 }
 

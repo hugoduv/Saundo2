@@ -153,6 +153,21 @@ static void voice_fail(const char *reason)
     voice_close();
 }
 
+void voice_stop_wifi_reset(void)
+{
+    socket_open = 0U;
+    voice_close();
+    attempted = 1U;
+    printf("[VOICE] Commandes desactivees pour cette carte apres erreur Wi-Fi.\r\n");
+}
+
+static void voice_wifi_fail(const char *reason)
+{
+    printf("[VOICE] %s\r\n", reason);
+    voice_stop_wifi_reset();
+    audio_stream_wifi_fault();
+}
+
 static int voice_start(void)
 {
     uint16_t port = wifi_probe_server_port();
@@ -190,7 +205,7 @@ static int voice_receive(void)
     uint16_t received = 0U;
     if (WIFI_ReceiveData(VOICE_SOCKET, data, sizeof(data), &received, 20U) != WIFI_STATUS_OK)
     {
-        voice_fail("Connexion vocale interrompue.");
+        voice_wifi_fail("Connexion vocale interrompue.");
         return 0;
     }
     for (uint16_t i = 0; i < received; ++i)
@@ -316,6 +331,6 @@ void voice_stop_process(void)
         if (HAL_GetTick() - send_started > max_send_ms)
             max_send_ms = HAL_GetTick() - send_started;
         if (status != WIFI_STATUS_OK || sent != sizeof(send_buffer))
-            voice_fail("Envoi audio au serveur vocal impossible.");
+            voice_wifi_fail("Envoi audio au serveur vocal impossible.");
     }
 }

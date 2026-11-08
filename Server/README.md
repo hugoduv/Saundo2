@@ -145,6 +145,11 @@ Elle renvoie `audio/mpeg`, avec un `Content-Length` et des trames MP3 MPEG-1
 Layer III mono 32 kHz à 64 kbit/s, sans étiquette ID3 ni en-tête Xing. Elle
 accepte aussi `Range` et conserve les mêmes erreurs 404. La première requête
 attend la conversion complète ; elle peut prendre du temps.
+Le serveur fournit également un `ETag` stable pour le fichier converti et
+respecte `If-Range` : après reconnexion Wi-Fi, la carte peut demander les
+octets manquants sans mélanger deux versions du fichier. Redémarrer une fois
+le serveur pour charger cette modification ; les reconnexions ultérieures
+ne nécessitent pas de le redémarrer.
 
 ## Ajouter une musique
 

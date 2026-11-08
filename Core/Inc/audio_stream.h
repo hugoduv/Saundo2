@@ -11,6 +11,7 @@ void audio_stream_restart(void);
 int audio_stream_active(void);
 uint32_t audio_stream_session(void);
 void audio_stream_process(void);
+void audio_stream_wifi_fault(void);
 int audio_stream_needs_refill(void);
 int audio_stream_refill_urgent(void);
 void audio_stream_note_nfc_time(uint32_t duration);

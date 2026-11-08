@@ -2,6 +2,7 @@
 #include "wifi_probe.h"
 #include "wifi.h"
 #include "nfc_events.h"
+#include "voice_stop.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,12 +30,13 @@
 #define HTTP_HEADER_SIZE 1024U
 #define FIRST_RESPONSE_TIMEOUT 60000U
 #define STREAM_TIMEOUT 3000U
+#define RECOVERY_RETRY_MS 5000U
 
 extern DAC_HandleTypeDef hdac1;
 extern TIM_HandleTypeDef htim6;
 
 typedef enum {
-    STREAM_IDLE, STREAM_OPEN, STREAM_RECEIVE, STREAM_DRAIN, STREAM_FINISHED, STREAM_FAILED
+    STREAM_IDLE, STREAM_OPEN, STREAM_RECEIVE, STREAM_RECOVER, STREAM_DRAIN, STREAM_FINISHED, STREAM_FAILED
 } stream_state_t;
 typedef enum {
     PLAY_OK, PLAY_FINISHED, PLAY_DMA_ERROR
@@ -71,6 +73,11 @@ static uint32_t content_length;
 static uint32_t body_received;
 static uint8_t http_complete;
 static uint32_t last_data_tick;
+static uint32_t recovery_tick;
+static uint8_t recovery_wait;
+static uint8_t resuming;
+static uint32_t resume_offset;
+static char stream_etag[80];
 static uint8_t mp3_buffer[MP3_BUFFER_SIZE];
 static uint32_t mp3_used;
 static mp3dec_t decoder;
@@ -201,8 +208,15 @@ static int parse_http_header(void)
     char *end;
     unsigned long length;
     uint8_t found = 0U;
-    if (strncmp(http_header, "HTTP/1.1 200 ", 13U) != 0 &&
-        strncmp(http_header, "HTTP/1.0 200 ", 13U) != 0) return 0;
+    uint8_t found_range = 0U;
+    uint8_t found_etag = 0U;
+    char expected_status[14];
+    snprintf(expected_status, sizeof(expected_status), "HTTP/1.1 %s ", resuming ? "206" : "200");
+    if (strncmp(http_header, expected_status, 13U) != 0)
+    {
+        expected_status[7] = '0';
+        if (strncmp(http_header, expected_status, 13U) != 0) return 0;
+    }
     line = strstr(http_header, "\r\n");
     while (line && line[2] != '\r')
     {
@@ -213,14 +227,49 @@ static int parse_http_header(void)
             while (*value == ' ' || *value == '\t') ++value;
             if (*value < '0' || *value > '9' || found) return 0;
             length = strtoul(value, &end, 10);
-            if (end == value || *end != '\r' || length < 288UL ||
+            if (end == value || *end != '\r' || length == 0UL ||
                 length > 0x7FFFFFFFUL) return 0;
-            content_length = (uint32_t)length;
+            if (resuming)
+            {
+                if (length != content_length - resume_offset) return 0;
+            }
+            else content_length = (uint32_t)length;
             found = 1U;
+        }
+        else if (header_name_equal(line, "etag"))
+        {
+            char *value = line + sizeof("etag");
+            size_t n;
+            while (*value == ' ' || *value == '\t') ++value;
+            end = strstr(value, "\r\n");
+            if (!end || found_etag) return 0;
+            n = (size_t)(end - value);
+            if (n < 2U || n >= sizeof(stream_etag) || value[0] != '"' || value[n - 1U] != '"') return 0;
+            if (resuming)
+            {
+                if (strlen(stream_etag) != n || memcmp(stream_etag, value, n) != 0) return 0;
+            }
+            else
+            {
+                memcpy(stream_etag, value, n);
+                stream_etag[n] = '\0';
+            }
+            found_etag = 1U;
+        }
+        else if (header_name_equal(line, "content-range") && resuming)
+        {
+            unsigned long start, last, total;
+            char *value = line + sizeof("content-range");
+            int used = 0;
+            while (*value == ' ' || *value == '\t') ++value;
+            if (found_range || sscanf(value, "bytes %lu-%lu/%lu%n", &start, &last, &total, &used) != 3 ||
+                value[used] != '\r' || start != resume_offset || total != content_length ||
+                last != total - 1U) return 0;
+            found_range = 1U;
         }
         line = strstr(line, "\r\n");
     }
-    return found;
+    return found && (!resuming || (found_range && found_etag));
 }
 
 static int consume_network(uint16_t count)
@@ -300,6 +349,8 @@ static void reset_stream(void)
     play_result = PLAY_OK;
     half_final[0] = half_final[1] = 0U;
     http_used = content_length = body_received = 0U;
+    stream_etag[0] = '\0';
+    resuming = recovery_wait = 0U;
     http_complete = 0U;
     mp3_used = sample_position = 0U;
     memset(&decoder, 0, sizeof(decoder));
@@ -329,6 +380,15 @@ void audio_stream_tag_removed(void)
     paused = 0U;
     pending_uid[0] = '\0';
     state = STREAM_IDLE;
+}
+
+void audio_stream_wifi_fault(void)
+{
+    if (state == STREAM_IDLE || state == STREAM_FAILED || state == STREAM_FINISHED) return;
+    socket_open = 0U;
+    state = STREAM_RECOVER;
+    recovery_wait = 0U;
+    printf("[AUDIO] Erreur Wi-Fi : reconnexion automatique demandee.\r\n");
 }
 
 void audio_stream_pause(void)
@@ -394,7 +454,7 @@ void audio_stream_note_voice_time(uint32_t duration)
 void audio_stream_process(void)
 {
     uint16_t received = 0U, sent = 0U;
-    char request[128];
+    char request[256];
     int length, decoded;
 
     if (state == STREAM_IDLE || state == STREAM_FAILED)
@@ -431,7 +491,64 @@ void audio_stream_process(void)
         state = STREAM_FINISHED;
         return;
     }
-    if (paused || state == STREAM_FINISHED) return;
+    if ((paused && state != STREAM_RECOVER) || state == STREAM_FINISHED) return;
+    if (state == STREAM_RECOVER)
+    {
+        if (recovery_wait && HAL_GetTick() - recovery_tick < RECOVERY_RETRY_MS) return;
+        voice_stop_wifi_reset();
+        if (!wifi_probe_recover())
+        {
+            recovery_tick = HAL_GetTick();
+            recovery_wait = 1U;
+            return;
+        }
+        recovery_wait = 0U;
+        if (http_complete && body_received == content_length)
+        {
+            state = STREAM_RECEIVE;
+        }
+        else if (body_received > 0U && stream_etag[0] == '\0')
+        {
+            fail_stream("Reprise impossible : serveur sans identifiant ETag.");
+            return;
+        }
+        else
+        {
+            resume_offset = body_received;
+            resuming = body_received > 0U;
+            http_used = 0U;
+            http_complete = 0U;
+            if (WIFI_OpenClientConnection(STREAM_SOCKET, WIFI_TCP_PROTOCOL, "SAUNDO2",
+                                          wifi_probe_server_ip(), wifi_probe_server_port(), 0) != WIFI_STATUS_OK)
+            {
+                printf("[AUDIO] Reconnexion au serveur impossible, nouvelle tentative.\r\n");
+                recovery_tick = HAL_GetTick();
+                recovery_wait = 1U;
+                return;
+            }
+            socket_open = 1U;
+            if (resuming)
+                length = snprintf(request, sizeof(request),
+                    "GET /api/stream-mp3/%s HTTP/1.1\r\nHost: saundo2\r\nConnection: close\r\nRange: bytes=%lu-\r\nIf-Range: %s\r\n\r\n",
+                    pending_uid, (unsigned long)resume_offset, stream_etag);
+            else
+                length = snprintf(request, sizeof(request),
+                    "GET /api/stream-mp3/%s HTTP/1.1\r\nHost: saundo2\r\nConnection: close\r\n\r\n", pending_uid);
+            if (length <= 0 || (size_t)length >= sizeof(request) ||
+                WIFI_SendData(STREAM_SOCKET, (const uint8_t *)request, (uint16_t)length,
+                              &sent, 5000U) != WIFI_STATUS_OK || sent != (uint16_t)length)
+            {
+                printf("[AUDIO] Requete de reprise impossible, nouvelle tentative.\r\n");
+                socket_open = 0U;
+                recovery_tick = HAL_GetTick();
+                recovery_wait = 1U;
+                return;
+            }
+            last_data_tick = HAL_GetTick();
+            state = STREAM_RECEIVE;
+            printf("[AUDIO] Reprise du flux a l'octet %lu.\r\n", (unsigned long)resume_offset);
+        }
+    }
     if (state == STREAM_OPEN)
     {
         close_socket();
@@ -444,7 +561,8 @@ void audio_stream_process(void)
         if (WIFI_OpenClientConnection(STREAM_SOCKET, WIFI_TCP_PROTOCOL, "SAUNDO2",
                                       wifi_probe_server_ip(), wifi_probe_server_port(), 0) != WIFI_STATUS_OK)
         {
-            fail_stream("Connexion au serveur impossible.");
+            printf("[AUDIO] Connexion au serveur impossible.\r\n");
+            audio_stream_wifi_fault();
             return;
         }
         socket_open = 1U;
@@ -455,7 +573,8 @@ void audio_stream_process(void)
             WIFI_SendData(STREAM_SOCKET, (const uint8_t *)request, (uint16_t)length,
                           &sent, 5000U) != WIFI_STATUS_OK || sent != (uint16_t)length)
         {
-            fail_stream("Envoi de la requete impossible.");
+            printf("[AUDIO] Envoi de la requete impossible.\r\n");
+            audio_stream_wifi_fault();
             return;
         }
         printf("[AUDIO] Chargement du flux MP3...\r\n");
@@ -494,7 +613,8 @@ void audio_stream_process(void)
             uint32_t started = HAL_GetTick();
             if (WIFI_ReceiveData(STREAM_SOCKET, network, sizeof(network), &received, 20U) != WIFI_STATUS_OK)
             {
-                fail_stream("Connexion interrompue pendant la lecture.");
+                printf("[AUDIO] Connexion interrompue pendant la lecture.\r\n");
+                audio_stream_wifi_fault();
                 return;
             }
             if (HAL_GetTick() - started > max_receive_ms) max_receive_ms = HAL_GetTick() - started;
@@ -510,7 +630,8 @@ void audio_stream_process(void)
             else if ((HAL_GetTick() - last_data_tick) >
                      (http_complete ? STREAM_TIMEOUT : FIRST_RESPONSE_TIMEOUT))
             {
-                fail_stream("Delai de reception depasse.");
+                printf("[AUDIO] Delai de reception depasse.\r\n");
+                audio_stream_wifi_fault();
                 return;
             }
         }

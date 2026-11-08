@@ -110,9 +110,21 @@ invisible. Le code de sécurité affiché vaut 0 pour ouvert, 1 pour WEP, 2 pour
 WPA, 3 pour WPA2 et 4 pour WPA/WPA2 ; toute autre valeur est non reconnue.
 
 Si l'envoi microphone échoue, le pilote affiche l'étape et un code d'erreur
-SPI ou un statut de socket, sans afficher le contenu audio. Si les connexions
-suivantes échouent aussi, redémarrer la carte après avoir vérifié que le serveur
-est toujours actif ; conserver les messages série complets pour le diagnostic.
+SPI ou un statut de socket, sans afficher le contenu audio. La carte coupe
+l'écoute vocale pour la session de la carte, réinitialise le module Wi-Fi et
+retente la connexion automatiquement. Si le serveur est toujours actif et que
+le fichier n'a pas changé, la lecture reprend à l'octet suivant les données
+reçues, après une interruption possible. Les données MP3 et PCM déjà en
+tampon sont conservées. La reprise utilise `Range`, `If-Range` et `ETag` ;
+si le fichier a changé ou si le serveur ne les prend pas en charge, elle
+échoue explicitement pour éviter de mélanger deux fichiers. Reposer la carte
+pour réactiver les commandes vocales.
+
+La reconnexion et les délais SPI sont bloquants : une coupure audible pendant
+une panne n'est pas évitable si le tampon se vide. En cas d'échec, la carte
+réessaie toutes les cinq secondes après la fin de chaque tentative ; vérifier
+le point d'accès et conserver les messages série complets. La cause du timeout
+DRDY n'est pas corrigée par cette récupération.
 Si le serveur vocal répond `ERROR busy` après une coupure ou un redémarrage,
 attendre 15 secondes que l'ancienne connexion inactive soit libérée, puis
 retirer et reposer le tag.

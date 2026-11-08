@@ -146,7 +146,9 @@ async function serveAudio(request, response, fileName, formatName = "wav") {
 
   const filePath = await convertedAudioPath(sourcePath, fileStats, formatName);
   fileStats = await fs.stat(filePath);
-  const range = request.headers.range;
+  const etag = `"${filePath.slice(filePath.lastIndexOf(sep) + 1)}"`;
+  const range = !request.headers["if-range"] || request.headers["if-range"] === etag ?
+    request.headers.range : undefined;
   let start = 0;
   let end = fileStats.size - 1;
   let statusCode = 200;
@@ -186,6 +188,7 @@ async function serveAudio(request, response, fileName, formatName = "wav") {
     "Accept-Ranges": "bytes",
     "Content-Length": fileStats.size === 0 ? 0 : end - start + 1,
     "Content-Type": formats[formatName].contentType,
+    "ETag": etag,
     "Access-Control-Allow-Origin": "*"
   };
   if (statusCode === 206) {

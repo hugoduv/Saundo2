@@ -8,6 +8,7 @@
 #define WIFI_PROBE_H
 #define WIFI_H
 #define NFC_EVENTS_H
+#define VOICE_STOP_H
 #define NFC_UID_STR_LEN 21
 #define __attribute__(x)
 #define __DMB() ((void)0)
@@ -25,6 +26,7 @@ static uint8_t *mock_response;
 static size_t mock_response_length, mock_response_offset;
 static size_t mock_receive_limit = 173U;
 static uint32_t mock_tick, mock_receives;
+static char last_request[256];
 int HAL_TIM_Base_Stop(TIM_HandleTypeDef *h) { (void)h; return 0; }
 int HAL_TIM_Base_Start(TIM_HandleTypeDef *h) { (void)h; return 0; }
 int HAL_DAC_Stop_DMA(DAC_HandleTypeDef *h, int c) { (void)h; (void)c; return 0; }
@@ -37,7 +39,11 @@ int WIFI_CloseClientConnection(int s) { (void)s; return 0; }
 int WIFI_OpenClientConnection(int s, int p, const char *n, const uint8_t *ip, int port, int t)
 { (void)s; (void)p; (void)n; (void)ip; (void)port; (void)t; return 0; }
 int WIFI_SendData(int s, const uint8_t *p, uint16_t n, uint16_t *sent, int t)
-{ (void)s; (void)p; (void)t; *sent = n; return 0; }
+{
+    (void)s; (void)t;
+    if (n < sizeof(last_request)) { memcpy(last_request, p, n); last_request[n] = '\0'; }
+    *sent = n; return 0;
+}
 int WIFI_ReceiveData(int s, uint8_t *p, int n, uint16_t *r, int t)
 {
     size_t count = mock_response_length - mock_response_offset;
@@ -53,6 +59,8 @@ int WIFI_ReceiveData(int s, uint8_t *p, int n, uint16_t *r, int t)
 int wifi_probe_is_ready(void) { return 1; }
 const uint8_t *wifi_probe_server_ip(void) { static const uint8_t ip[4] = {0}; return ip; }
 uint16_t wifi_probe_server_port(void) { return 8080; }
+int wifi_probe_recover(void) { return 1; }
+void voice_stop_wifi_reset(void) {}
 
 #include "../Core/Src/audio_stream.c"
 
@@ -159,6 +167,60 @@ int main(int argc, char **argv)
     memcpy(mp3_buffer, bytes, 4);
     mp3_used = 4;
     check(decode_frame() == 0, "truncated frame decoded");
+    reset_stream();
+    strcpy(stream_etag, "\"test\"");
+    content_length = 3000U;
+    body_received = resume_offset = 1000U;
+    resuming = 1U;
+    strcpy(http_header, "HTTP/1.1 206 Partial Content\r\nContent-Length: 2000\r\nContent-Range: bytes 1000-2999/3000\r\nETag: \"test\"\r\n\r\n");
+    check(parse_http_header(), "valid HTTP resume rejected");
+    strcpy(http_header, "HTTP/1.1 206 Partial Content\r\nContent-Length: 2000\r\nContent-Range: bytes 1000-2999/3000\r\nETag: \"changed\"\r\n\r\n");
+    check(!parse_http_header(), "changed representation accepted on resume");
+    strcpy(http_header, "HTTP/1.1 200 OK\r\nContent-Length: 3000\r\nETag: \"test\"\r\n\r\n");
+    check(!parse_http_header(), "full response accepted as partial resume");
+    strcpy(http_header, "HTTP/1.1 206 Partial Content\r\nContent-Length: 2000\r\nContent-Range: bytes 999-2999/3000\r\nETag: \"test\"\r\n\r\n");
+    check(!parse_http_header(), "incorrect resume offset accepted");
+    reset_stream();
+    {
+        size_t prefix = 100U;
+        size_t resumed_header;
+        char partial[256];
+        check((size_t)length > prefix, "MP3 too short for recovery test");
+        content_length = (uint32_t)length;
+        body_received = (uint32_t)prefix;
+        http_complete = 1U;
+        memcpy(mp3_buffer, bytes, prefix);
+        mp3_used = (uint32_t)prefix;
+        strcpy(stream_etag, "\"test\"");
+        strcpy(pending_uid, "12345678");
+        state = STREAM_RECEIVE;
+        playing = 0U;
+        audio_stream_wifi_fault();
+        resumed_header = (size_t)snprintf(partial, sizeof(partial),
+            "HTTP/1.1 206 Partial Content\r\nContent-Length: %lu\r\nContent-Range: bytes 100-%lu/%lu\r\nETag: \"test\"\r\n\r\n",
+            (unsigned long)length - 100UL, (unsigned long)length - 1UL, (unsigned long)length);
+        mock_response_length = resumed_header + (size_t)length - prefix;
+        mock_response = malloc(mock_response_length);
+        check(mock_response != NULL, "resume allocation failed");
+        memcpy(mock_response, partial, resumed_header);
+        memcpy(mock_response + resumed_header, bytes + prefix, (size_t)length - prefix);
+        mock_response_offset = 0;
+        audio_stream_process();
+        check(strstr(last_request, "Range: bytes=100-") != NULL &&
+              strstr(last_request, "If-Range: \"test\"") != NULL, "missing resume headers");
+        for (unsigned int j = 0; j < 100000 && state != STREAM_FINISHED && state != STREAM_FAILED; ++j) {
+            audio_stream_process();
+            if (playing) {
+                if (j % 2U) audio_stream_dma_half(&hdac1);
+                else audio_stream_dma_complete(&hdac1);
+            }
+        }
+        check(state == STREAM_FINISHED && body_received == (uint32_t)length,
+              "resumed stream did not finish");
+        free(mock_response);
+        mock_response = NULL;
+        mock_response_length = mock_response_offset = 0U;
+    }
     reset_stream();
     for (uint32_t j = 0; j < START_SAMPLES; ++j) ring[j] = (uint16_t)(1000U + j % 500U);
     ring_write = 100U;
