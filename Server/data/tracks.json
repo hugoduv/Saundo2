@@ -13,8 +13,14 @@
   },
   {
     "uid": "7887CE53",
-    "title": "verts",
-    "file": "verts.wav",
+    "title": "jack",
+    "file": "jack.wav",
+    "enabled": true
+  },
+  {
+    "uid": "27B101B7",
+    "title": "dragon",
+    "file": "dragon.wav",
     "enabled": true
   }
 ]

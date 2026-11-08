@@ -19,6 +19,8 @@ Le fichier original n'est pas modifié.
 Depuis le dossier `server` :
 
 ```powershell
+cd C:\Users\hugdu\Dev\STM32\Saundo2\Server
+$env:FFMPEG_PATH = "C:\ffmpeg\bin\ffmpeg.exe"
 npm.cmd start
 ```
 

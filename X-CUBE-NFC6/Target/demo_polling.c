@@ -337,9 +337,6 @@ bool demoIni( void )
 void demoCycle( void )
 {
     static rfalNfcDevice *nfcDevice;
-#if defined(PLATFORM_USER_BUTTON_PORT) && defined(PLATFORM_USER_BUTTON_PIN)
-    static bool buttonPressed;
-#endif
 
     rfalNfcWorker();                                    /* Run RFAL worker periodically */
 
@@ -348,17 +345,12 @@ void demoCycle( void )
     /* Check if USER button is pressed */
     if( platformGpioIsLow(PLATFORM_USER_BUTTON_PORT, PLATFORM_USER_BUTTON_PIN))
     {
-        if (!buttonPressed)
-        {
-            buttonPressed = true;
-            discParam.wakeupEnabled = !discParam.wakeupEnabled;
-            state = DEMO_ST_START_DISCOVERY;
-            platformLog("Toggling Wake Up mode %s\r\n", discParam.wakeupEnabled ? "ON": "OFF");
-        }
-    }
-    else
-    {
-        buttonPressed = false;
+        discParam.wakeupEnabled = !discParam.wakeupEnabled;    /* enable/disable wakeup */
+        state = DEMO_ST_START_DISCOVERY;                       /* restart loop          */
+        platformLog("Toggling Wake Up mode %s\r\n", discParam.wakeupEnabled ? "ON": "OFF");
+
+        /* Debounce button */
+        while( platformGpioIsLow(PLATFORM_USER_BUTTON_PORT, PLATFORM_USER_BUTTON_PIN) );
     }
 #endif /* PLATFORM_USER_BUTTON_PIN */
 

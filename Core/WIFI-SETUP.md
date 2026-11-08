@@ -54,6 +54,10 @@ le débit doivent être vérifiés sur la carte. En cas de perte réseau, retire
 le tag et redémarrer la carte après rétablissement du Wi-Fi. HTTP est prévu
 pour ce prototype local, pas pour un serveur exposé sur Internet.
 
+Le fichier `X-CUBE-NFC6/Target/demo_polling.c` transmet les UID détectés à
+`nfc_events_card_seen()` pour déclencher la lecture. Après une régénération
+du code NFC, vérifier que cet appel est toujours présent avant de recompiler.
+
 Si la connexion échoue, le firmware indique si l'échec concerne la connexion
 au point d'accès ou la lecture des paramètres réseau, puis recherche le SSID
 configuré sans afficher le nom ni le mot de passe. Le scan est limité à
