@@ -70,6 +70,26 @@ test("rejects a second microphone while one is connected", { timeout: 5000 }, as
   }
 });
 
+test("releases an inactive microphone connection for the next client", { timeout: 5000 }, async () => {
+  const server = startVoiceServer("127.0.0.1", 0, {
+    idleTimeoutMs: 200,
+    createRecognizer: fakeRecognizer
+  });
+  await once(server, "listening");
+  const first = openClient(server);
+  let second;
+  try {
+    await readUntil(first, "READY\n");
+    await once(first, "close");
+    second = openClient(server);
+    assert.match(await readUntil(second, "READY\n"), /READY\n/);
+  } finally {
+    first.destroy();
+    if (second) second.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("rejects the removed stop command", { timeout: 5000 }, async () => {
   const server = startVoiceServer("127.0.0.1", 0, {
     createRecognizer: () => spawn(process.execPath, ["-e", `

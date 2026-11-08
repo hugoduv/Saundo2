@@ -269,6 +269,12 @@ void voice_stop_process(void)
         last_poll = HAL_GetTick();
         if (!voice_receive()) return;
     }
+    if (!ready)
+    {
+        /* Discard startup audio so the microphone buffer cannot fill while waiting. */
+        mic_read = mic_write;
+        return;
+    }
     if (mic_write - mic_read >= MIC_SEND_SAMPLES)
     {
         uint16_t sent = 0U;

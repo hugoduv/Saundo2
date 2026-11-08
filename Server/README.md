@@ -39,6 +39,10 @@ uniquement sur le réseau approprié.
 La lecture audio reste utilisable si la reconnaissance est indisponible. Les
 erreurs apparaissent dans le terminal du serveur et sur le port série avec le
 préfixe `[VOICE]`. Si le port HTTP est modifié, ouvrir le port suivant.
+Une seule connexion vocale est acceptée à la fois. Après une coupure ou un
+redémarrage de la carte, le serveur libère une connexion inactive au bout de
+15 secondes. Si la carte affiche `ERROR busy`, attendre ce délai puis retirer
+et reposer le tag pour réessayer.
 
 ## Démarrage
 

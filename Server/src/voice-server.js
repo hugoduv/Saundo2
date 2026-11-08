@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const recognizerScript = fileURLToPath(new URL("./recognize-stop.ps1", import.meta.url));
 
-export function startVoiceServer(host, port, { createRecognizer = () => spawn("powershell.exe", [
+export function startVoiceServer(host, port, { idleTimeoutMs = 15000, createRecognizer = () => spawn("powershell.exe", [
   "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
   "-File", recognizerScript
 ], { stdio: ["pipe", "pipe", "pipe"] }) } = {}) {
@@ -18,6 +18,11 @@ export function startVoiceServer(host, port, { createRecognizer = () => spawn("p
     const recognizer = createRecognizer();
     let output = "";
     socket.setNoDelay(true);
+    socket.setTimeout(idleTimeoutMs);
+    socket.on("timeout", () => {
+      console.error("[VOICE] Connexion inactive : liberation du microphone.");
+      socket.destroy();
+    });
     socket.pipe(recognizer.stdin);
     socket.on("error", (error) => console.error("[VOICE] Socket:", error.message));
     recognizer.stdin.on("error", (error) => {

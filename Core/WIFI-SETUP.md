@@ -79,6 +79,14 @@ configuré sans afficher le nom ni le mot de passe. Le scan est limité à
 invisible. Le code de sécurité affiché vaut 0 pour ouvert, 1 pour WEP, 2 pour
 WPA, 3 pour WPA2 et 4 pour WPA/WPA2 ; toute autre valeur est non reconnue.
 
+Si l'envoi microphone échoue, le pilote affiche l'étape et un code d'erreur
+SPI ou un statut de socket, sans afficher le contenu audio. Si les connexions
+suivantes échouent aussi, redémarrer la carte après avoir vérifié que le serveur
+est toujours actif ; conserver les messages série complets pour le diagnostic.
+Si le serveur vocal répond `ERROR busy` après une coupure ou un redémarrage,
+attendre 15 secondes que l'ancienne connexion inactive soit libérée, puis
+retirer et reposer le tag.
+
 ## Pilote ST
 
 Les fichiers `es_wifi.c`, `es_wifi_io.c`, `wifi.c` et leurs en-têtes
