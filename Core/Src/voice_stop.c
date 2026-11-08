@@ -200,12 +200,20 @@ static int voice_receive(void)
                 ready = 1U;
                 printf("[VOICE] Ecoute active.\r\n");
             }
-            else if (strcmp(response, "STOP") == 0 && ready)
+            else if (strcmp(response, "PAUSE") == 0 && ready)
             {
-                printf("[VOICE] Stop reconnu.\r\n");
-                audio_stream_stop_voice();
-                voice_close();
-                return 0;
+                printf("[VOICE] Pause reconnue.\r\n");
+                audio_stream_pause();
+            }
+            else if (strcmp(response, "PLAY") == 0 && ready)
+            {
+                printf("[VOICE] Play reconnu.\r\n");
+                audio_stream_play();
+            }
+            else if (strcmp(response, "RECOMMENCE") == 0 && ready)
+            {
+                printf("[VOICE] Recommence reconnu.\r\n");
+                audio_stream_restart();
             }
             else
             {

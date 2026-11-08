@@ -8,7 +8,8 @@ import { startVoiceServer } from "../src/voice-server.js";
 function fakeRecognizer() {
   return spawn(process.execPath, ["-e", `
     process.stdout.write("READY\\n");
-    process.stdin.once("data", () => process.stdout.write("STOP\\n"));
+    let count = 0;
+    process.stdin.on("data", () => process.stdout.write(["PAUSE\\n", "PLAY\\n", "RECOMMENCE\\n"][count++]));
     process.stdin.resume();
   `], { stdio: ["pipe", "pipe", "pipe"] });
 }
@@ -38,14 +39,16 @@ function readUntil(socket, text) {
   });
 }
 
-test("forwards microphone data and returns recognition result", { timeout: 5000 }, async () => {
+test("forwards multiple commands in the same microphone session", { timeout: 5000 }, async () => {
   const server = await openServer();
   const socket = openClient(server);
   try {
     assert.match(await readUntil(socket, "READY\n"), /READY\n/);
-    const response = readUntil(socket, "STOP\n");
-    socket.write(Buffer.alloc(1024));
-    assert.match(await response, /STOP\n/);
+    for (const command of ["PAUSE", "PLAY", "RECOMMENCE"]) {
+      const response = readUntil(socket, `${command}\n`);
+      socket.write(Buffer.alloc(1024));
+      assert.match(await response, new RegExp(`${command}\n`));
+    }
   } finally {
     socket.destroy();
     await new Promise((resolve) => server.close(resolve));
@@ -63,6 +66,23 @@ test("rejects a second microphone while one is connected", { timeout: 5000 }, as
   } finally {
     first.destroy();
     if (second) second.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("rejects the removed stop command", { timeout: 5000 }, async () => {
+  const server = startVoiceServer("127.0.0.1", 0, {
+    createRecognizer: () => spawn(process.execPath, ["-e", `
+      process.stdout.write("STOP\\n");
+      process.stdin.resume();
+    `], { stdio: ["pipe", "pipe", "pipe"] })
+  });
+  await once(server, "listening");
+  const socket = openClient(server);
+  try {
+    assert.match(await readUntil(socket, "ERROR recognizer\n"), /ERROR recognizer\n/);
+  } finally {
+    socket.destroy();
     await new Promise((resolve) => server.close(resolve));
   }
 });

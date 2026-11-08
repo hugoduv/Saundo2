@@ -20,7 +20,7 @@ extern DAC_HandleTypeDef hdac1;
 extern TIM_HandleTypeDef htim6;
 
 typedef enum {
-    STREAM_IDLE, STREAM_OPEN, STREAM_RECEIVE, STREAM_DRAIN, STREAM_FAILED
+    STREAM_IDLE, STREAM_OPEN, STREAM_RECEIVE, STREAM_DRAIN, STREAM_FINISHED, STREAM_FAILED
 } stream_state_t;
 
 typedef enum {
@@ -35,6 +35,7 @@ static stream_state_t state = STREAM_IDLE;
 static uint32_t stream_session;
 static char pending_uid[NFC_UID_STR_LEN];
 static uint8_t socket_open;
+static uint8_t paused;
 static uint8_t network[NETWORK_BLOCK];
 static uint8_t ring[RING_SIZE];
 static uint8_t dma_buffer[DMA_SIZE] __attribute__((aligned(4)));
@@ -387,6 +388,7 @@ static void reset_stream(void)
 void audio_stream_tag_placed(const char *uid)
 {
     stop_dac();
+    paused = 0U;
     ++stream_session;
     play_result = PLAY_OK;
     if (strlen(uid) >= sizeof(pending_uid))
@@ -403,16 +405,46 @@ void audio_stream_tag_placed(const char *uid)
 void audio_stream_tag_removed(void)
 {
     stop_dac();
+    paused = 0U;
     pending_uid[0] = '\0';
     state = STREAM_IDLE;
 }
 
-void audio_stream_stop_voice(void)
+void audio_stream_pause(void)
 {
+    if (paused || state == STREAM_IDLE || state == STREAM_FAILED || state == STREAM_FINISHED)
+        return;
+    if (playing && HAL_TIM_Base_Stop(&htim6) != HAL_OK)
+    {
+        fail_stream("Pause du DAC impossible.");
+        return;
+    }
+    paused = 1U;
+    printf("[AUDIO] Lecture en pause.\r\n");
+}
+
+void audio_stream_play(void)
+{
+    if (!paused) return;
+    if (playing && HAL_TIM_Base_Start(&htim6) != HAL_OK)
+    {
+        fail_stream("Reprise du DAC impossible.");
+        return;
+    }
+    last_data_tick = HAL_GetTick();
+    paused = 0U;
+    printf("[AUDIO] Lecture reprise.\r\n");
+}
+
+void audio_stream_restart(void)
+{
+    if (state == STREAM_IDLE || state == STREAM_FAILED || pending_uid[0] == '\0')
+        return;
     stop_dac();
-    pending_uid[0] = '\0';
-    state = STREAM_IDLE;
-    close_socket();
+    paused = 0U;
+    play_result = PLAY_OK;
+    state = STREAM_OPEN;
+    printf("[AUDIO] Lecture depuis le debut.\r\n");
 }
 
 int audio_stream_active(void)
@@ -447,9 +479,11 @@ void audio_stream_process(void)
     {
         close_socket();
         printf("[AUDIO] Lecture terminee.\r\n");
-        state = STREAM_IDLE;
+        play_result = PLAY_OK;
+        state = STREAM_FINISHED;
         return;
     }
+    if (paused || state == STREAM_FINISHED) return;
     if (state == STREAM_OPEN)
     {
         close_socket();

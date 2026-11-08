@@ -17,12 +17,11 @@ export function startVoiceServer(host, port, { createRecognizer = () => spawn("p
     active = true;
     const recognizer = createRecognizer();
     let output = "";
-    let stopped = false;
     socket.setNoDelay(true);
     socket.pipe(recognizer.stdin);
     socket.on("error", (error) => console.error("[VOICE] Socket:", error.message));
     recognizer.stdin.on("error", (error) => {
-      if (!socket.destroyed && !stopped && error.code !== "EPIPE" &&
+      if (!socket.destroyed && error.code !== "EPIPE" &&
           error.code !== "ERR_STREAM_DESTROYED") {
         console.error("[VOICE] Entree audio:", error.message);
       }
@@ -41,9 +40,8 @@ export function startVoiceServer(host, port, { createRecognizer = () => spawn("p
         output = output.slice(end + 1);
         if (line === "READY") {
           socket.write("READY\n");
-        } else if (line === "STOP") {
-          stopped = true;
-          socket.write("STOP\n");
+        } else if (line === "PAUSE" || line === "PLAY" || line === "RECOMMENCE") {
+          socket.write(`${line}\n`);
         } else {
           console.error("[VOICE] Reponse inattendue du moteur:", line);
           socket.end("ERROR recognizer\n");
@@ -55,7 +53,7 @@ export function startVoiceServer(host, port, { createRecognizer = () => spawn("p
       socket.end("ERROR recognizer\n");
     });
     recognizer.on("close", (code) => {
-      if (!socket.destroyed && !stopped) {
+      if (!socket.destroyed) {
         console.error(`[VOICE] Moteur arrete (code ${code}).`);
         socket.end("ERROR recognizer\n");
       }

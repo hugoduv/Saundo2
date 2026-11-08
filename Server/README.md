@@ -14,14 +14,20 @@ Le serveur convertit automatiquement les fichiers en WAV PCM mono 16 bits à
 de la conversion ; les suivantes utilisent le fichier converti en cache.
 Le fichier original n'est pas modifié.
 
-## Commande vocale « stop » expérimentale
+## Commandes vocales expérimentales
 
 Sur Windows, le serveur ouvre aussi un port TCP dédié à la reconnaissance :
 le port HTTP plus un (par défaut **8081**). Le moteur de reconnaissance vocal
 français Windows doit être installé. La carte envoie le signal de son microphone
-pendant le chargement et la lecture ; le serveur recherche localement le mot
-« stop ». Il ne sauvegarde pas les échantillons. Pour relancer la lecture,
-retirer puis reposer la carte NFC.
+tant que la session du tag est active, y compris pendant une pause et après la
+fin du morceau. Le serveur recherche localement « pause », « play » et
+« recommence » ; il ne sauvegarde pas les échantillons.
+
+- **« pause »** suspend la lecture sans perdre la position.
+- **« play »** reprend à la position de la pause.
+- **« recommence »** relance le morceau au début, même après sa fin.
+- Retirer la carte arrête la lecture et le microphone. « stop » n'est plus
+  une commande vocale.
 
 Le microphone et la reconnaissance restent à tester sur la carte réelle. Le son
 du haut-parleur peut masquer la voix ou déclencher la commande par erreur.

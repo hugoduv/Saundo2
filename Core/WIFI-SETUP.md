@@ -56,10 +56,11 @@ pour ce prototype local, pas pour un serveur exposé sur Internet.
 
 La commande vocale expérimentale utilise le microphone intégré et le serveur
 Windows local. Autoriser aussi le port TCP suivant le port HTTP (8081 par
-défaut), puis vérifier `[VOICE] Ecoute active.` avant de dire « stop ».
-L'audio du microphone est transmis en clair sur le réseau local pendant le
-chargement et la lecture. Il n'est pas sauvegardé par le serveur. Après
-`[VOICE] Stop reconnu.`, retirer puis reposer le tag pour relancer la lecture.
+défaut), puis vérifier `[VOICE] Ecoute active.` avant de dire « pause »,
+« play » ou « recommence ». « play » reprend à la position de pause ;
+« recommence » relance au début. Retirer le tag arrête la lecture et l'écoute.
+L'audio du microphone est transmis en clair sur le réseau local pendant la
+session, y compris en pause et après la fin. Il n'est pas sauvegardé par le serveur.
 Le fonctionnement et la fiabilité en présence du haut-parleur doivent être
 vérifiés sur la carte ; voir `Server/README.md`.
 Le microphone utilise DFSDM1 canal 1 et filtre 0 avec DMA1 canal 4 ; le
