@@ -25,6 +25,19 @@ its audio output. Removing the tag stops playback.
   channel 3 in circular mode**, with a 1024-byte DAC buffer.
 - A network error or empty buffer stops playback. Streaming operation and
   stability still need to be verified on the board.
+- While a tag's session is active, including during pause and after playback
+  finishes, the board sends microphone audio to the local server for offline
+  recognition of three commands:
+  - **« pause »** pauses playback.
+  - **« play »** resumes from the paused position.
+  - **« recommence »** restarts the current track from the beginning.
+
+  Removing the tag stops playback and microphone capture. There is no "stop"
+  voice command. This experimental feature requires Windows and a French
+  Windows speech recognizer on the server; verify it on the board, especially
+  with sound playing through the speaker. Microphone audio crosses the local
+  network unencrypted and is not saved by this software. Do not expose the
+  server to an untrusted network.
 
 ## Server and configuration
 

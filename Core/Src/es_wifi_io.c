@@ -340,6 +340,10 @@ int16_t SPI_WIFI_ReceiveData(uint8_t *pData, uint16_t len, uint32_t timeout)
 
   if (wait_cmddata_rdy_rising_event(timeout) < 0)
   {
+      printf("[WIFI] Timeout DRDY : pin=%u, event=%d, pending=%u, irq=%u.\r\n",
+             (unsigned)WIFI_IS_CMDDATA_READY(), cmddata_rdy_rising_event,
+             (unsigned)(__HAL_GPIO_EXTI_GET_IT(GPIO_PIN_1) != 0U),
+             (unsigned)NVIC_GetEnableIRQ(EXTI1_IRQn));
       return ES_WIFI_ERROR_WAITING_DRDY_FALLING;
   }
 
@@ -373,6 +377,7 @@ int16_t SPI_WIFI_ReceiveData(uint8_t *pData, uint16_t len, uint32_t timeout)
 
       if (length >= ES_WIFI_DATA_SIZE) {
         WIFI_DISABLE_NSS();
+        printf("[WIFI] Reponse SPI trop longue : reinitialisation du module.\r\n");
         SPI_WIFI_ResetModule();
         UNLOCK_SPI();
         return ES_WIFI_ERROR_STUFFING_FOREVER;

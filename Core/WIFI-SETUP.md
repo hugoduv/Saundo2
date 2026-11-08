@@ -54,6 +54,20 @@ le débit doivent être vérifiés sur la carte. En cas de perte réseau, retire
 le tag et redémarrer la carte après rétablissement du Wi-Fi. HTTP est prévu
 pour ce prototype local, pas pour un serveur exposé sur Internet.
 
+La commande vocale expérimentale utilise le microphone intégré et le serveur
+Windows local. Autoriser aussi le port TCP suivant le port HTTP (8081 par
+défaut), puis vérifier `[VOICE] Ecoute active.` avant de dire « pause »,
+« play » ou « recommence ». « play » reprend à la position de pause ;
+« recommence » relance au début. Retirer le tag arrête la lecture et l'écoute.
+L'audio du microphone est transmis en clair sur le réseau local pendant la
+session, y compris en pause et après la fin. Il n'est pas sauvegardé par le serveur.
+Le fonctionnement et la fiabilité en présence du haut-parleur doivent être
+vérifiés sur la carte ; voir `Server/README.md`.
+Le microphone utilise DFSDM1 canal 1 et filtre 0 avec DMA1 canal 4 ; le
+diviseur DFSDM est fixé à 50 dans la section utilisateur de
+`HAL_DFSDM_ChannelMspInit()`, avant activation de l'horloge par la HAL. Après
+régénération CubeMX, contrôler les affectations DMA avant de recompiler.
+
 Le fichier `X-CUBE-NFC6/Target/demo_polling.c` transmet les UID détectés à
 `nfc_events_card_seen()` pour déclencher la lecture. Après une régénération
 du code NFC, vérifier que cet appel est toujours présent avant de recompiler.
@@ -64,6 +78,14 @@ configuré sans afficher le nom ni le mot de passe. Le scan est limité à
 10 réseaux : l'absence du SSID dans les résultats ne prouve pas qu'il est
 invisible. Le code de sécurité affiché vaut 0 pour ouvert, 1 pour WEP, 2 pour
 WPA, 3 pour WPA2 et 4 pour WPA/WPA2 ; toute autre valeur est non reconnue.
+
+Si l'envoi microphone échoue, le pilote affiche l'étape et un code d'erreur
+SPI ou un statut de socket, sans afficher le contenu audio. Si les connexions
+suivantes échouent aussi, redémarrer la carte après avoir vérifié que le serveur
+est toujours actif ; conserver les messages série complets pour le diagnostic.
+Si le serveur vocal répond `ERROR busy` après une coupure ou un redémarrage,
+attendre 15 secondes que l'ancienne connexion inactive soit libérée, puis
+retirer et reposer le tag.
 
 ## Pilote ST
 

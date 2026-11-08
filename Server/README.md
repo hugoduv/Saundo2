@@ -14,6 +14,36 @@ Le serveur convertit automatiquement les fichiers en WAV PCM mono 16 bits à
 de la conversion ; les suivantes utilisent le fichier converti en cache.
 Le fichier original n'est pas modifié.
 
+## Commandes vocales expérimentales
+
+Sur Windows, le serveur ouvre aussi un port TCP dédié à la reconnaissance :
+le port HTTP plus un (par défaut **8081**). Le moteur de reconnaissance vocal
+français Windows doit être installé. La carte envoie le signal de son microphone
+tant que la session du tag est active, y compris pendant une pause et après la
+fin du morceau. Le serveur recherche localement « pause », « play » et
+« recommence » ; il ne sauvegarde pas les échantillons.
+
+- **« pause »** suspend la lecture sans perdre la position.
+- **« play »** reprend à la position de la pause.
+- **« recommence »** relance le morceau au début, même après sa fin.
+- Retirer la carte arrête la lecture et le microphone. « stop » n'est plus
+  une commande vocale.
+
+Le microphone et la reconnaissance restent à tester sur la carte réelle. Le son
+du haut-parleur peut masquer la voix ou déclencher la commande par erreur.
+L'audio circule en clair sur le réseau local et le port vocal n'est pas
+authentifié : utiliser uniquement un réseau de confiance, ne pas exposer ces
+ports sur Internet. Si nécessaire, autoriser le port TCP 8081 dans le pare-feu
+uniquement sur le réseau approprié.
+
+La lecture audio reste utilisable si la reconnaissance est indisponible. Les
+erreurs apparaissent dans le terminal du serveur et sur le port série avec le
+préfixe `[VOICE]`. Si le port HTTP est modifié, ouvrir le port suivant.
+Une seule connexion vocale est acceptée à la fois. Après une coupure ou un
+redémarrage de la carte, le serveur libère une connexion inactive au bout de
+15 secondes. Si la carte affiche `ERROR busy`, attendre ce délai puis retirer
+et reposer le tag pour réessayer.
+
 ## Démarrage
 
 Depuis le dossier `server` :
